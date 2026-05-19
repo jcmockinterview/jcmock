@@ -1,0 +1,590 @@
+{% extends "base.html" %}
+{% block title %}Role Interview{% endblock %}
+
+{% block head %}
+<style>
+.page-wrap { max-width:800px; margin:0 auto; padding:2.5rem 2rem; }
+.screen-title { font-family:var(--font-head); font-size:2rem; font-weight:800; letter-spacing:-0.8px; margin-bottom:0.5rem; }
+.screen-title span { color:var(--accent); }
+.screen-sub { color:var(--muted); font-size:0.92rem; margin-bottom:2.5rem; }
+
+/* ── SEARCH ── */
+.role-search-wrap { position:relative; margin-bottom:1.5rem; }
+.role-search-wrap svg { position:absolute; left:1rem; top:50%; transform:translateY(-50%); width:18px; height:18px; color:var(--muted2); pointer-events:none; }
+.role-search { width:100%; background:var(--card); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:0.85rem 1rem 0.85rem 2.8rem; color:var(--text); font-family:var(--font-body); font-size:0.95rem; outline:none; transition:border-color 0.2s, box-shadow 0.2s; }
+.role-search:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(249,115,22,0.12); }
+.role-search::placeholder { color:var(--muted2); }
+
+/* ── CATEGORY TABS ── */
+.category-tabs { display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1.8rem; }
+.cat-tab { padding:0.4rem 1rem; border-radius:100px; border:1px solid var(--border2); background:transparent; color:var(--muted); font-size:0.82rem; font-family:var(--font-body); cursor:pointer; transition:all 0.2s; }
+.cat-tab:hover { border-color:var(--accent); color:var(--accent); }
+.cat-tab.active { background:rgba(249,115,22,0.12); border-color:var(--accent); color:var(--accent2); }
+
+/* ── ROLE CARDS ── */
+.roles-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:0.9rem; margin-bottom:2rem; }
+.role-card { background:var(--card); border:1.5px solid var(--border); border-radius:var(--radius); padding:1.3rem 1.4rem; cursor:pointer; transition:border-color 0.2s, background 0.2s, transform 0.15s; position:relative; overflow:hidden; }
+.role-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--rc,var(--accent)); opacity:0; transition:opacity 0.2s; }
+.role-card:hover { border-color:var(--border2); transform:translateY(-2px); }
+.role-card:hover::before { opacity:1; }
+.role-card.selected { border-color:var(--accent); background:rgba(249,115,22,0.07); }
+.role-card.selected::before { opacity:1; }
+.role-card-icon { font-size:1.6rem; margin-bottom:0.7rem; }
+.role-card-title { font-family:var(--font-head); font-size:0.95rem; font-weight:700; margin-bottom:0.3rem; }
+.role-card-sub { font-size:0.78rem; color:var(--muted); }
+.role-card-badge { position:absolute; top:0.7rem; right:0.8rem; font-size:0.68rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:100px; text-transform:uppercase; }
+.badge-popular { background:rgba(249,115,22,0.12); color:var(--accent2); }
+.badge-hot     { background:rgba(239,68,68,0.12); color:#fca5a5; }
+.badge-new     { background:rgba(34,197,94,0.1); color:#86efac; }
+.role-check { position:absolute; bottom:0.75rem; right:0.8rem; width:20px; height:20px; border-radius:50%; background:var(--accent); display:none; align-items:center; justify-content:center; }
+.role-card.selected .role-check { display:flex; }
+.role-check svg { width:12px; height:12px; stroke:#fff; stroke-width:3; }
+.no-roles { text-align:center; color:var(--muted); padding:3rem 1rem; font-size:0.9rem; display:none; }
+
+/* ── SELECTED BANNER ── */
+.selected-role-banner { display:none; align-items:center; gap:1rem; background:rgba(249,115,22,0.07); border:1px solid rgba(249,115,22,0.2); border-radius:var(--radius-sm); padding:0.9rem 1.2rem; margin-bottom:1.5rem; }
+.selected-role-banner.show { display:flex; }
+.selected-role-banner-icon { font-size:1.4rem; }
+.selected-role-banner-info { flex:1; }
+.selected-role-banner-name { font-family:var(--font-head); font-weight:700; font-size:0.95rem; }
+.selected-role-banner-sub  { font-size:0.78rem; color:var(--muted); }
+.btn-change { background:none; border:1px solid var(--border2); color:var(--muted); border-radius:var(--radius-sm); padding:0.35rem 0.8rem; font-size:0.78rem; cursor:pointer; font-family:var(--font-body); transition:all 0.2s; }
+.btn-change:hover { border-color:var(--text); color:var(--text); }
+
+/* ── SETTINGS ── */
+.settings-panel { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:1.5rem; }
+.settings-panel h4 { font-family:var(--font-head); font-size:0.88rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:1rem; }
+.options-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; }
+.option-item { display:flex; flex-direction:column; gap:0.3rem; }
+.option-item label { font-size:0.8rem; color:var(--muted); font-weight:500; }
+.option-item select { background:var(--bg2); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:0.6rem 0.9rem; color:var(--text); font-family:var(--font-body); font-size:0.88rem; outline:none; cursor:pointer; }
+.option-item select:focus { border-color:var(--accent); }
+
+/* ── INTERVIEW ── */
+.interview-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; }
+.q-counter { font-family:var(--font-head); font-size:0.85rem; font-weight:700; color:var(--muted); }
+.q-counter span { color:var(--accent); }
+.q-progress-bar { flex:1; height:4px; background:var(--border2); border-radius:100px; margin:0 1.2rem; overflow:hidden; }
+.q-progress-fill { height:100%; background:var(--accent); border-radius:100px; transition:width 0.5s ease; }
+.timer-badge { background:var(--bg3); border:1px solid var(--border2); border-radius:100px; padding:0.3rem 0.8rem; font-size:0.82rem; font-family:var(--font-head); font-weight:700; color:var(--muted); min-width:52px; text-align:center; }
+.timer-badge.warning { color:#fbbf24; border-color:rgba(251,191,36,0.3); }
+.timer-badge.danger  { color:var(--error); border-color:rgba(239,68,68,0.3); animation:flash 0.8s ease-in-out infinite; }
+@keyframes flash { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.role-context-bar { display:flex; align-items:center; gap:0.8rem; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.6rem 1rem; margin-bottom:1.5rem; font-size:0.82rem; color:var(--muted); }
+.role-context-bar strong { color:var(--accent2); font-family:var(--font-head); }
+.question-card { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:2rem 2.2rem; margin-bottom:1.5rem; position:relative; overflow:hidden; }
+.question-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent); }
+.q-tag { display:inline-block; font-size:0.72rem; font-weight:600; letter-spacing:0.6px; text-transform:uppercase; color:var(--accent2); background:rgba(249,115,22,0.1); border-radius:6px; padding:0.25rem 0.65rem; margin-bottom:1rem; }
+.question-text { font-family:var(--font-head); font-size:1.25rem; font-weight:700; line-height:1.45; }
+.answer-area { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:1.8rem 2.2rem; margin-bottom:1.5rem; }
+.answer-area-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.2rem; }
+.answer-area-header h4 { font-family:var(--font-head); font-size:0.88rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+.mic-status { display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; color:var(--muted2); }
+.mic-dot { width:8px; height:8px; border-radius:50%; background:var(--muted2); }
+.mic-dot.recording { background:var(--error); animation:pulse 0.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }
+.transcript-box { min-height:100px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:1rem 1.2rem; font-size:0.95rem; color:var(--text); line-height:1.7; margin-bottom:1.2rem; }
+.transcript-box.empty { color:var(--muted2); font-style:italic; }
+.mic-controls { display:flex; align-items:center; gap:1rem; }
+.btn-mic { display:flex; align-items:center; gap:0.6rem; padding:0.7rem 1.4rem; border-radius:var(--radius-sm); border:none; font-family:var(--font-head); font-size:0.9rem; font-weight:600; cursor:pointer; transition:all 0.2s; }
+.btn-mic svg { width:18px; height:18px; }
+.btn-mic-start { background:rgba(34,197,94,0.15); color:var(--success); border:1px solid rgba(34,197,94,0.3); }
+.btn-mic-stop  { background:rgba(239,68,68,0.15); color:var(--error); border:1px solid rgba(239,68,68,0.3); }
+.btn-clear { background:transparent; border:1px solid var(--border2); color:var(--muted); border-radius:var(--radius-sm); padding:0.7rem 1rem; font-size:0.85rem; cursor:pointer; font-family:var(--font-body); }
+.btn-clear:hover { border-color:var(--text); color:var(--text); }
+.waveform { display:none; align-items:center; gap:3px; margin-left:auto; }
+.waveform.show { display:flex; }
+.wave-bar { width:3px; border-radius:100px; background:var(--error); animation:wave 0.8s ease-in-out infinite; }
+.wave-bar:nth-child(1){height:10px;animation-delay:0s}.wave-bar:nth-child(2){height:18px;animation-delay:0.1s}.wave-bar:nth-child(3){height:24px;animation-delay:0.2s}.wave-bar:nth-child(4){height:16px;animation-delay:0.3s}.wave-bar:nth-child(5){height:10px;animation-delay:0.4s}
+@keyframes wave { 0%,100%{transform:scaleY(1)} 50%{transform:scaleY(0.4)} }
+.nav-btns { display:flex; gap:1rem; }
+.btn-next { flex:1; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-sm); padding:0.9rem; font-family:var(--font-head); font-size:1rem; font-weight:600; cursor:pointer; transition:background 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem; }
+.btn-next:hover { background:var(--accent2); }
+.btn-skip { background:transparent; border:1px solid var(--border2); color:var(--muted); border-radius:var(--radius-sm); padding:0.9rem 1.4rem; font-family:var(--font-body); font-size:0.88rem; cursor:pointer; }
+.btn-skip:hover { border-color:var(--text); color:var(--text); }
+
+/* ── RESULT ── */
+.result-hero { text-align:center; margin-bottom:2.5rem; }
+.score-ring-wrap { width:140px; height:140px; margin:0 auto 1.5rem; position:relative; }
+.score-ring-wrap svg { width:140px; height:140px; transform:rotate(-90deg); }
+.score-ring-bg { fill:none; stroke:var(--border2); stroke-width:10; }
+.score-ring-fill { fill:none; stroke:var(--accent); stroke-width:10; stroke-linecap:round; stroke-dasharray:345; stroke-dashoffset:345; transition:stroke-dashoffset 1.5s ease; }
+.score-ring-text { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.score-num { font-family:var(--font-head); font-size:2rem; font-weight:800; line-height:1; }
+.score-lbl { font-size:0.72rem; color:var(--muted); margin-top:0.2rem; }
+.result-hero h2 { font-family:var(--font-head); font-size:1.6rem; font-weight:800; margin-bottom:0.4rem; }
+.result-hero p  { color:var(--muted); font-size:0.92rem; }
+.result-role-tag { display:inline-flex; align-items:center; gap:0.5rem; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.2); color:#38bdf8; border-radius:100px; padding:0.3rem 0.9rem; font-size:0.78rem; font-weight:500; margin-top:0.7rem; }
+.review-list { display:flex; flex-direction:column; gap:1rem; margin-bottom:2rem; }
+.review-item { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:1.3rem 1.5rem; }
+.review-item-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:0.7rem; }
+.review-q { font-size:0.9rem; font-weight:500; line-height:1.5; flex:1; }
+.score-pill { font-size:0.78rem; font-weight:700; font-family:var(--font-head); border-radius:100px; padding:0.25rem 0.7rem; flex-shrink:0; }
+.score-pill.high { background:rgba(34,197,94,0.15); color:var(--success); }
+.score-pill.mid  { background:rgba(251,191,36,0.15); color:#fbbf24; }
+.score-pill.low  { background:rgba(239,68,68,0.15); color:var(--error); }
+.review-answer { font-size:0.85rem; color:var(--muted); line-height:1.65; border-left:2px solid var(--border2); padding-left:0.9rem; margin-bottom:0.6rem; }
+.review-feedback { font-size:0.82rem; color:#fbbf24; }
+.result-actions { display:flex; gap:1rem; }
+.btn-email { flex:1; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-sm); padding:0.9rem; font-family:var(--font-head); font-size:0.95rem; font-weight:600; cursor:pointer; transition:background 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem; }
+.btn-email:hover { background:var(--accent2); }
+.btn-restart { background:transparent; border:1px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:0.9rem 1.5rem; font-family:var(--font-body); font-size:0.9rem; cursor:pointer; }
+</style>
+{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+  <a href="/home" class="nav-logo">Job<span>Cooked</span> 🍳</a>
+  <a href="/home" class="nav-back">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    Back to Home
+  </a>
+</nav>
+
+<div class="steps-bar">
+  <div class="step active" id="step-1"><div class="step-circle">1</div><div class="step-label">Choose Role</div></div>
+  <div class="step" id="step-2"><div class="step-circle">2</div><div class="step-label">Generating</div></div>
+  <div class="step" id="step-3"><div class="step-circle">3</div><div class="step-label">Interview</div></div>
+  <div class="step" id="step-4"><div class="step-circle">4</div><div class="step-label">Results</div></div>
+</div>
+
+<!-- SCREEN 1: ROLE SELECT -->
+<div class="screen active" id="screen-role">
+  <div class="page-wrap">
+    <h1 class="screen-title">Choose your <span>Role</span></h1>
+    <p class="screen-sub">Pick the job role you're targeting and we'll generate tailored interview questions.</p>
+
+    <div class="selected-role-banner" id="selected-banner">
+      <div class="selected-role-banner-icon" id="banner-icon">💼</div>
+      <div class="selected-role-banner-info">
+        <div class="selected-role-banner-name" id="banner-name">Role Selected</div>
+        <div class="selected-role-banner-sub"  id="banner-sub">Ready to configure</div>
+      </div>
+      <button class="btn-change" onclick="clearRole()">Change</button>
+    </div>
+
+    <div class="role-search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="role-search" id="role-search" placeholder="Search roles… e.g. Frontend, Data Scientist" oninput="filterRoles()"/>
+    </div>
+
+    <div class="category-tabs">
+      <button class="cat-tab active" onclick="filterCat(this,'all')">All Roles</button>
+      <button class="cat-tab" onclick="filterCat(this,'engineering')">Engineering</button>
+      <button class="cat-tab" onclick="filterCat(this,'data')">Data & AI</button>
+      <button class="cat-tab" onclick="filterCat(this,'design')">Design</button>
+      <button class="cat-tab" onclick="filterCat(this,'product')">Product</button>
+      <button class="cat-tab" onclick="filterCat(this,'management')">Management</button>
+      <button class="cat-tab" onclick="filterCat(this,'finance')">Finance</button>
+    </div>
+
+    <div class="roles-grid" id="roles-grid"></div>
+    <div class="no-roles" id="no-roles">No roles found.</div>
+
+    <div class="settings-panel">
+      <h4>Interview Settings</h4>
+      <div class="options-grid">
+        <div class="option-item"><label>Experience Level</label>
+          <select id="difficulty"><option value="fresher">Fresher (0–1 yr)</option><option value="mid" selected>Mid-Level (2–4 yrs)</option><option value="senior">Senior (5+ yrs)</option></select>
+        </div>
+        <div class="option-item"><label>No. of Questions</label>
+          <select id="q-count"><option value="5">5 Questions</option><option value="10" selected>10 Questions</option><option value="15">15 Questions</option></select>
+        </div>
+        <div class="option-item"><label>Interview Focus</label>
+          <select id="interview-type"><option value="technical" selected>Technical</option><option value="behavioral">Behavioral</option><option value="mixed">Mixed</option></select>
+        </div>
+        <div class="option-item"><label>Time per Question</label>
+          <select id="time-limit"><option value="60">1 minute</option><option value="120" selected>2 minutes</option><option value="180">3 minutes</option><option value="0">No limit</option></select>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="btn-start" disabled onclick="startGeneration()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      Generate Interview Questions
+    </button>
+  </div>
+</div>
+
+<!-- SCREEN 2: LOADING -->
+<div class="screen" id="screen-loading">
+  <div class="loading-screen">
+    <div class="loader-ring"></div>
+    <h3 id="load-title">Preparing interview...</h3>
+    <p id="load-sub">Crafting role-specific questions</p>
+    <div class="loading-steps">
+      <div class="loading-step current" id="ls-1"><div class="loading-step-dot"></div>Analysing role requirements</div>
+      <div class="loading-step" id="ls-2"><div class="loading-step-dot"></div>Mapping industry expectations</div>
+      <div class="loading-step" id="ls-3"><div class="loading-step-dot"></div>Generating tailored questions</div>
+      <div class="loading-step" id="ls-4"><div class="loading-step-dot"></div>Setting up session</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 3: INTERVIEW -->
+<div class="screen" id="screen-interview">
+  <div class="page-wrap">
+    <div class="interview-header">
+      <span class="q-counter">Q <span id="q-current">1</span> of <span id="q-total">10</span></span>
+      <div class="q-progress-bar"><div class="q-progress-fill" id="q-progress" style="width:10%"></div></div>
+      <div class="timer-badge" id="timer-display">2:00</div>
+    </div>
+    <div class="role-context-bar">
+      <span>💼</span>
+      <span>Role: <strong id="interview-role-name">Software Engineer</strong></span>
+      <span style="margin-left:auto;color:var(--muted2)" id="interview-diff-tag">Mid-Level · Technical</span>
+    </div>
+    <div class="question-card">
+      <div class="q-tag" id="q-tag">Technical</div>
+      <div class="question-text" id="question-text">Loading...</div>
+    </div>
+    <div class="answer-area">
+      <div class="answer-area-header">
+        <h4>Your Answer</h4>
+        <div class="mic-status"><div class="mic-dot" id="mic-dot"></div><span id="mic-status-text">Mic off</span></div>
+      </div>
+      <div class="transcript-box empty" id="transcript-box">Click "Start Speaking" to begin your answer...</div>
+      <div class="mic-controls">
+        <button class="btn-mic btn-mic-start" id="btn-mic-start" onclick="startRecording()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+          Start Speaking
+        </button>
+        <button class="btn-mic btn-mic-stop" id="btn-mic-stop" onclick="stopRecording()" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          Stop
+        </button>
+        <button class="btn-clear" onclick="clearAnswer()">Clear</button>
+        <div class="waveform" id="waveform">
+          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="nav-btns">
+      <button class="btn-skip" onclick="skipQ()">Skip</button>
+      <button class="btn-next" id="btn-next" onclick="nextQ()">
+        Next Question
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 4: RESULT -->
+<div class="screen" id="screen-result">
+  <div class="page-wrap">
+    <div class="result-hero">
+      <div class="score-ring-wrap">
+        <svg viewBox="0 0 120 120"><circle class="score-ring-bg" cx="60" cy="60" r="55"/><circle class="score-ring-fill" id="score-ring" cx="60" cy="60" r="55"/></svg>
+        <div class="score-ring-text"><div class="score-num" id="final-score">0%</div><div class="score-lbl">Overall</div></div>
+      </div>
+      <h2 id="result-title">Interview Complete!</h2>
+      <p id="result-subtitle">Here's your performance breakdown</p>
+      <div class="result-role-tag" id="result-role-tag">💼 Role</div>
+    </div>
+    <div class="review-list" id="review-list"></div>
+    <div class="result-actions">
+      <button class="btn-email" id="btn-send-report" onclick="sendReport()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+        Send Report to Email
+      </button>
+      <button class="btn-restart" onclick="location.reload()">Try Again</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ROLES = [
+  {id:'fe', icon:'🖥️', title:'Frontend Developer',     sub:'React, Vue, Angular',        cat:'engineering', badge:'popular'},
+  {id:'be', icon:'⚙️', title:'Backend Developer',      sub:'Node.js, Python, Java',      cat:'engineering', badge:'popular'},
+  {id:'fs', icon:'🔩', title:'Full Stack Developer',   sub:'End-to-end web development', cat:'engineering', badge:'hot'},
+  {id:'mob',icon:'📱', title:'Mobile Developer',       sub:'iOS, Android, React Native', cat:'engineering', badge:null},
+  {id:'de', icon:'🔷', title:'DevOps Engineer',        sub:'CI/CD, Kubernetes, AWS',     cat:'engineering', badge:null},
+  {id:'qa', icon:'🧪', title:'QA Engineer',            sub:'Testing, Selenium, Jest',    cat:'engineering', badge:null},
+  {id:'sre',icon:'🛡️', title:'Site Reliability Eng.', sub:'Uptime, Monitoring, SLOs',   cat:'engineering', badge:'new'},
+  {id:'sec',icon:'🔐', title:'Cybersecurity Analyst',  sub:'Pen Testing, SIEM, SOC',     cat:'engineering', badge:null},
+  {id:'ml', icon:'🤖', title:'ML Engineer',            sub:'TensorFlow, PyTorch, MLOps', cat:'data',        badge:'hot'},
+  {id:'ds', icon:'📊', title:'Data Scientist',         sub:'Python, R, Statistics',      cat:'data',        badge:'popular'},
+  {id:'da', icon:'📈', title:'Data Analyst',           sub:'SQL, Tableau, Excel',        cat:'data',        badge:null},
+  {id:'de2',icon:'🏗️', title:'Data Engineer',          sub:'Spark, Hadoop, Pipelines',   cat:'data',        badge:null},
+  {id:'ai', icon:'✨', title:'AI/LLM Engineer',        sub:'Prompt Eng., RAG, Agents',   cat:'data',        badge:'new'},
+  {id:'ux', icon:'🎨', title:'UX Designer',            sub:'Figma, User Research',       cat:'design',      badge:null},
+  {id:'ui', icon:'💅', title:'UI Designer',            sub:'Design Systems, Prototypes', cat:'design',      badge:null},
+  {id:'pm', icon:'🗺️', title:'Product Manager',        sub:'Roadmap, Agile, Strategy',   cat:'product',     badge:'popular'},
+  {id:'po', icon:'📋', title:'Product Owner',          sub:'Backlog, Scrum, Stories',    cat:'product',     badge:null},
+  {id:'ba', icon:'🔍', title:'Business Analyst',       sub:'Requirements, Process',      cat:'product',     badge:null},
+  {id:'em', icon:'👥', title:'Engineering Manager',    sub:'Team Lead, Architecture',    cat:'management',  badge:null},
+  {id:'scm',icon:'🔄', title:'Scrum Master',           sub:'Agile, Sprint Planning',     cat:'management',  badge:null},
+  {id:'fa', icon:'💰', title:'Financial Analyst',      sub:'Excel, Modeling, Valuation', cat:'finance',     badge:null},
+  {id:'inv',icon:'📉', title:'Investment Analyst',     sub:'Equity, Markets, Research',  cat:'finance',     badge:null},
+];
+const COLORS = {engineering:'#f97316',data:'#38bdf8',design:'#a78bfa',product:'#34d399',management:'#fb7185',finance:'#fbbf24'};
+
+const ST = {
+  role:null, questions:[], answers:[], currentQ:0, timerInterval:null, timeLeft:120, isRecording:false, recognition:null, settings:{}, cat:'all', q:'' };
+
+function setStep(n) {
+  for (let i=1;i<=4;i++) { const e=document.getElementById('step-'+i); e.classList.remove('active','done'); if(i<n)e.classList.add('done'); if(i===n)e.classList.add('active'); }
+}
+function showScreen(id) { document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
+
+function renderRoles() {
+  const grid = document.getElementById('roles-grid');
+  const q = ST.q.toLowerCase();
+  const filtered = ROLES.filter(r => (ST.cat==='all'||r.cat===ST.cat) && (!q||r.title.toLowerCase().includes(q)||r.sub.toLowerCase().includes(q)));
+  document.getElementById('no-roles').style.display = filtered.length?'none':'block';
+  const color = COLORS[ST.cat]||'var(--accent)';
+  grid.innerHTML = filtered.map(r => `
+    <div class="role-card${ST.role?.id===r.id?' selected':''}" style="--rc:${color}" onclick="selectRole(${JSON.stringify(r).replace(/"/g,'&quot;')})">
+      ${r.badge?`<span class="role-card-badge badge-${r.badge==='popular'?'popular':r.badge==='hot'?'hot':'new'}">${r.badge}</span>`:''}
+      <div class="role-card-icon">${r.icon}</div>
+      <div class="role-card-title">${r.title}</div>
+      <div class="role-card-sub">${r.sub}</div>
+      <div class="role-check"><svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="3"/></svg></div>
+    </div>`).join('');
+}
+
+function selectRole(role) {
+  ST.role = role;
+  document.getElementById('banner-icon').textContent = role.icon;
+  document.getElementById('banner-name').textContent = role.title;
+  document.getElementById('banner-sub').textContent  = role.sub;
+  document.getElementById('selected-banner').classList.add('show');
+  document.getElementById('btn-start').disabled = false;
+  renderRoles();
+  document.querySelector('.settings-panel').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function clearRole() { ST.role=null; document.getElementById('selected-banner').classList.remove('show'); document.getElementById('btn-start').disabled=true; renderRoles(); }
+function filterRoles() { ST.q = document.getElementById('role-search').value; renderRoles(); }
+function filterCat(el, cat) { ST.cat=cat; document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); renderRoles(); }
+
+async function startGeneration() {
+  if (!ST.role) return;
+  ST.settings = { difficulty:document.getElementById('difficulty').value, qCount:parseInt(document.getElementById('q-count').value), interviewType:document.getElementById('interview-type').value, timeLimit:parseInt(document.getElementById('time-limit').value) };
+  setStep(2); showScreen('screen-loading');
+  document.getElementById('load-title').textContent = `Preparing ${ST.role.title} interview...`;
+
+  const steps = ['ls-1','ls-2','ls-3','ls-4'];
+  const timers = steps.map((id,i) => new Promise(res => setTimeout(() => {
+    document.getElementById(id).classList.remove('current'); document.getElementById(id).classList.add('done');
+    if (i+1<steps.length) document.getElementById(steps[i+1]).classList.add('current'); res();
+  }, (i+1)*700)));
+
+  // Start timers in background
+  timers.forEach(t => t);
+
+  let data;
+  try {
+    const res = await fetch('/api/role/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ role:ST.role.title, difficulty:ST.settings.difficulty, q_count:ST.settings.qCount, interview_type:ST.settings.interviewType })
+    });
+    data = await res.json();
+  } catch(e) {
+    showRoleError('Network error — could not reach the server. Check your connection.'); return;
+  }
+
+  await delay(2800);
+
+  if (data.ok) {
+    ST.questions = data.questions;
+    ST.answers   = new Array(data.questions.length).fill('');
+    await delay(300);
+    startInterview();
+  } else {
+    showRoleError(data.msg || 'Failed to generate questions.');
+  }
+}
+
+function showRoleError(msg) {
+  setStep(1); showScreen('screen-role');
+  let banner = document.getElementById('role-error-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'role-error-banner';
+    banner.style.cssText = 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;border-radius:8px;padding:1rem 1.2rem;margin-top:1rem;font-size:0.88rem;line-height:1.6;';
+    document.querySelector('.settings-panel').after(banner);
+  }
+  banner.innerHTML = `<strong style="display:block;margin-bottom:0.3rem">⚠️ Question Generation Failed</strong>${msg}<br><span style="color:var(--muted2);font-size:0.8rem;margin-top:0.4rem;display:block">Make sure your <code style="background:rgba(255,255,255,0.08);padding:0.1rem 0.4rem;border-radius:4px">OPENROUTER_API_KEY</code> is set and valid, then try again.</span>`;
+}
+
+function startInterview() {
+  ST.currentQ=0; setStep(3); showScreen('screen-interview');
+  document.getElementById('q-total').textContent = ST.questions.length;
+  document.getElementById('interview-role-name').textContent = ST.role.title;
+  const d=ST.settings.difficulty; const t=ST.settings.interviewType;
+  document.getElementById('interview-diff-tag').textContent = `${d.charAt(0).toUpperCase()+d.slice(1)} · ${t.charAt(0).toUpperCase()+t.slice(1)}`;
+  loadQ(0);
+}
+
+function loadQ(idx) {
+  const q = ST.questions[idx]; if(!q){finishInterview();return;}
+  document.getElementById('q-current').textContent = idx+1;
+  document.getElementById('q-tag').textContent = q.category||'General';
+  document.getElementById('question-text').textContent = q.question;
+  document.getElementById('q-progress').style.width = ((idx+1)/ST.questions.length*100)+'%';
+  const saved = ST.answers[idx]||'';
+  const box = document.getElementById('transcript-box');
+  box.textContent = saved||'Click "Start Speaking" to begin your answer...';
+  box.className = 'transcript-box'+(saved?'':' empty');
+  const isLast = idx===ST.questions.length-1;
+  document.getElementById('btn-next').innerHTML = isLast
+    ?'Finish Interview <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+    :'Next Question <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+  startTimer();
+}
+
+function startTimer() {
+  clearInterval(ST.timerInterval); ST.timeLeft = ST.settings.timeLimit;
+  if (!ST.timeLeft) { document.getElementById('timer-display').textContent='∞'; return; }
+  updateTimer();
+  ST.timerInterval = setInterval(() => { ST.timeLeft--; updateTimer(); if(ST.timeLeft<=0){clearInterval(ST.timerInterval);stopRecording();showToast('Time up!','error');setTimeout(nextQ,1500);} }, 1000);
+}
+function updateTimer() {
+  const m=Math.floor(ST.timeLeft/60),s=ST.timeLeft%60;
+  const el=document.getElementById('timer-display'); el.textContent=`${m}:${s.toString().padStart(2,'0')}`; el.className='timer-badge';
+  if(ST.timeLeft<=30&&ST.timeLeft>10) el.classList.add('warning'); if(ST.timeLeft<=10) el.classList.add('danger');
+}
+
+function startRecording() {
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR){showToast('Speech not supported','error');return;}
+  ST.recognition=new SR(); ST.recognition.continuous=true; ST.recognition.interimResults=true;
+  const questionIndex=ST.currentQ;
+  let final=ST.answers[questionIndex]||'';
+  const box=document.getElementById('transcript-box');
+  ST.recognition.onstart=()=>{ST.isRecording=true;document.getElementById('btn-mic-start').style.display='none';document.getElementById('btn-mic-stop').style.display='flex';document.getElementById('mic-dot').classList.add('recording');document.getElementById('mic-status-text').textContent='Recording...';document.getElementById('waveform').classList.add('show');box.classList.remove('empty');};
+  ST.recognition.onresult=e=>{let int='';for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)final+=e.results[i][0].transcript+' ';else int+=e.results[i][0].transcript;}box.textContent=final+int;ST.answers[questionIndex]=final;};
+  ST.recognition.onerror=e=>{if(e.error!=='no-speech')showToast('Mic error: '+e.error,'error');stopRecording();};
+  ST.recognition.onend=()=>{if(ST.isRecording)ST.recognition.start();};
+  ST.recognition.start();
+}
+function stopRecording() {
+  ST.isRecording=false; if(ST.recognition){ST.recognition.onend=null;ST.recognition.stop();}
+  document.getElementById('btn-mic-start').style.display='flex'; document.getElementById('btn-mic-stop').style.display='none';
+  document.getElementById('mic-dot').classList.remove('recording'); document.getElementById('mic-status-text').textContent='Mic off';
+  document.getElementById('waveform').classList.remove('show');
+  const box=document.getElementById('transcript-box'); if(!box.textContent.trim()||box.textContent.includes('Click')){box.textContent='Click "Start Speaking" to begin your answer...';box.classList.add('empty');}
+
+}
+function clearAnswer(){stopRecording();ST.answers[ST.currentQ]='';const b=document.getElementById('transcript-box');b.textContent='Click "Start Speaking" to begin your answer...';b.classList.add('empty');}
+function nextQ(){stopRecording();clearInterval(ST.timerInterval);if(ST.currentQ===ST.questions.length-1){finishInterview();return;}ST.currentQ++;loadQ(ST.currentQ);}
+function skipQ(){ST.answers[ST.currentQ]='';nextQ();}
+
+function calcScore(a){if(!a||a.trim().length<10)return Math.floor(Math.random()*20+10);return Math.round(Math.min(100,40+a.trim().split(/\s+/).length*1.5+Math.random()*20));}
+function finishInterview() {
+  stopRecording(); clearInterval(ST.timerInterval); setStep(4); showScreen('screen-result');
+  document.getElementById('result-role-tag').textContent=`${ST.role.icon} ${ST.role.title}`;
+  document.getElementById('review-list').innerHTML=`<div style="text-align:center;padding:2rem;color:var(--muted)"><div style="width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem"></div>AI is analysing your speaking quality and answers...</div>`;
+  const qk=ST.questions.map((q,i)=>calcScore(ST.answers[i]));
+  const qo=Math.round(qk.reduce((a,b)=>a+b,0)/qk.length);
+  setTimeout(()=>{const c=2*Math.PI*55;document.getElementById('score-ring').style.strokeDashoffset=c-(qo/100)*c;animateNum('final-score',0,qo,1500,'%');},300);
+  document.getElementById('result-title').textContent=qo>=75?'🎉 Excellent!':qo>=50?'👍 Good Effort!':'💪 Keep Practicing!';
+  document.getElementById('result-subtitle').textContent=`Analysing ${ST.questions.length} answers...`;
+  const promises=ST.questions.map((q,i)=>{
+    const ans=ST.answers[i]||''; if(!ans.trim()) return Promise.resolve(null);
+    return fetch('/api/analyze-answer',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question:q.question,answer:ans,interview_type:'role',category:q.category||'General'})
+    }).then(r=>r.json()).catch(()=>null);
+  });
+  Promise.all(promises).then(results=>{
+    const scores=ST.questions.map((q,i)=>{
+      const ai=results[i],ans=ST.answers[i]||'';
+      return{question:q.question,category:q.category||'General',answer:ans,score:(ai&&ai.ok)?ai.overall_score:calcScore(ans),ai:(ai&&ai.ok)?ai:null};
+    });
+    const overall=Math.round(scores.reduce((a,b)=>a+b.score,0)/scores.length);
+    setTimeout(()=>{const c=2*Math.PI*55;document.getElementById('score-ring').style.strokeDashoffset=c-(overall/100)*c;animateNum('final-score',0,overall,1500,'%');},100);
+    document.getElementById('result-title').textContent=overall>=75?'🎉 Excellent!':overall>=50?'👍 Good Effort!':'💪 Keep Practicing!';
+    document.getElementById('result-subtitle').textContent=`You scored ${overall}% across ${scores.length} questions`;
+    const mc=v=>v>=75?'var(--success)':v>=50?'#fbbf24':'var(--error)';
+    const bar=(label,val)=>`<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:4px"><div style="font-size:0.72rem;color:var(--muted);width:68px;flex-shrink:0">${label}</div><div style="flex:1;height:4px;background:var(--border2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${val}%;background:${mc(val)};border-radius:4px;transition:width 1s ease"></div></div><div style="font-size:0.7rem;font-weight:700;color:${mc(val)};width:22px;text-align:right">${val}</div></div>`;
+    document.getElementById('review-list').innerHTML=scores.map((s,i)=>{
+      const cls=s.score>=75?'high':s.score>=45?'mid':'low';
+      const ai=s.ai; let aiHTML='';
+      if(ai){
+        const sp=ai.speaking,aq=ai.answer_quality;
+        const vc={'Excellent':'var(--success)','Good':'#38bdf8','Fair':'#fbbf24','Needs Work':'var(--error)'}[ai.verdict]||'#fbbf24';
+        const fillers=(sp.filler_words||[]).map(fw=>`<span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:100px;border:1px solid rgba(239,68,68,0.3);color:#fca5a5;background:rgba(239,68,68,0.06);margin-right:4px">⚠ "${fw}"</span>`).join('');
+        const strengths=(aq.strengths||[]).slice(0,2).map(s=>`<span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:100px;border:1px solid rgba(34,197,94,0.3);color:#86efac;background:rgba(34,197,94,0.06);margin-right:4px">✓ ${s}</span>`).join('');
+        const improvs=(aq.improvements||[]).slice(0,2).map(imp=>`<span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:100px;border:1px solid rgba(249,115,22,0.3);color:var(--accent2);background:rgba(249,115,22,0.06);margin-right:4px">💡 ${imp}</span>`).join('');
+        aiHTML=`<div style="margin-top:1rem;background:var(--bg2);border-radius:10px;padding:1rem 1.2rem;border:1px solid var(--border)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.4rem">
+            <span style="font-size:0.78rem;font-weight:700;font-family:var(--font-head);color:var(--muted);text-transform:uppercase;letter-spacing:0.4px">AI Analysis</span>
+            <span style="font-size:0.75rem;font-weight:700;padding:0.2rem 0.7rem;border-radius:100px;background:${vc}22;color:${vc};font-family:var(--font-head)">${ai.verdict}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:0.8rem">
+            <div><div style="font-size:0.72rem;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:0.5rem">Speaking Quality</div>
+              ${bar('Clarity',sp.clarity)}${bar('Pace',sp.pace)}${bar('Confidence',sp.confidence)}${bar('Structure',sp.structure)}
+              <div style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;line-height:1.55">${sp.feedback||''}</div>
+              <div style="margin-top:0.4rem">${fillers}</div>
+            </div>
+            <div><div style="font-size:0.72rem;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:0.5rem">Answer Quality</div>
+              ${bar('Relevance',aq.relevance)}${bar('Depth',aq.depth)}${bar('Accuracy',aq.accuracy)}${bar('Examples',aq.examples)}
+              <div style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;line-height:1.55">${aq.feedback||''}</div>
+              <div style="margin-top:0.4rem">${strengths}${improvs}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.8rem;background:rgba(249,115,22,0.06);border:1px solid rgba(249,115,22,0.15);border-radius:6px">
+            <span style="font-size:0.78rem;color:var(--muted)">AI Overall Score</span>
+            <span style="font-family:var(--font-head);font-size:1rem;font-weight:800;color:${mc(s.score)}">${s.score}%</span>
+          </div>
+        </div>`;
+      }
+      return `<div class="review-item"><div class="review-item-header"><div class="review-q"><strong>Q${i+1}:</strong> ${s.question}</div><div class="score-pill ${cls}">${s.score}%</div></div><div class="review-answer" style="font-size:0.85rem;color:var(--muted);border-left:2px solid var(--border2);padding-left:0.9rem;margin-bottom:0.4rem">${s.answer||'<em>No answer given</em>'}</div>${aiHTML}</div>`;
+    }).join('');
+    const hist=JSON.parse(localStorage.getItem('jc_interview_history')||'[]');
+    hist.unshift({date:new Date().toISOString(),type:'role',role:ST.role.title,score:overall});
+    localStorage.setItem('jc_interview_history',JSON.stringify(hist.slice(0,20)));
+  });
+}
+async function sendReport() {
+  const btn = document.getElementById('btn-send-report');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg> Sending...';
+
+  const scores = ST.questions.map((q, i) => {
+    const sc = calcScore(ST.answers[i]);
+    return {
+      question: q.question,
+      answer:   ST.answers[i] || '',
+      score:    sc,
+      category: q.category || 'General',
+      feedback: sc >= 75 ? 'Great depth and clarity!'
+               : sc >= 45 ? 'Add specific examples using STAR method.'
+               : 'Elaborate more with concrete examples.',
+    };
+  });
+  const overall = Math.round(scores.reduce((a,b) => a+b.score, 0) / scores.length);
+
+  try {
+    const res  = await fetch('/api/report/generate', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        interview_type: 'role',
+        role:           ST.role ? ST.role.title : '',
+        level:          ST.settings ? ST.settings.difficulty : '',
+        overall_score:  overall,
+        questions:      scores,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ ' + data.msg, 'success');
+    } else {
+      showToast('❌ ' + (data.msg || 'Failed to send report.'), 'error');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    showToast('❌ Network error. Please try again.', 'error');
+    btn.disabled = false;
+  }
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg> Send Report to Email';
+}
+
+function animateNum(id,from,to,dur,sfx=''){const el=document.getElementById(id),s=performance.now();function u(n){const p=Math.min((n-s)/dur,1);el.textContent=Math.round(from+(to-from)*p)+sfx;if(p<1)requestAnimationFrame(u);}requestAnimationFrame(u);}
+renderRoles();
+</script>
+{% endblock %}

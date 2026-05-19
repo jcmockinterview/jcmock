@@ -1,0 +1,17 @@
+{
+  "tamilmaranveera2004@gmail.com": {
+    "name": "Tamilmaran",
+    "email": "tamilmaranveera2004@gmail.com",
+    "password": "scrypt:32768:8:1$OenjJxgYh4MXAJCI$57f1aa0505ef9858565ca1df4791430763d984bb95c277493965a72f5ba726f8afdbded7f8f5a7fa33767928b0f1c79cd187a98ce031a1e248ca8c8fce366b7c"
+  },
+  "tamilmaranveera11@gmail.com": {
+    "name": "maran",
+    "email": "tamilmaranveera11@gmail.com",
+    "password": "scrypt:32768:8:1$OMm1zkO3jMnOcfus$a3e794db8cdde8bd6dafce3670c8edeae2219cc92a13abf9b250bffa62fa2e7a87a8c02aef87169f854a1c20c62ce8af1cd280a823d0ed404986020bafcd500f"
+  },
+  "tamiad121@rmkcet.ac.in": {
+    "name": "maran",
+    "email": "tamiad121@rmkcet.ac.in",
+    "password": "scrypt:32768:8:1$srOOIf8Bg78xnCs8$a869a0ea0e5aaff8826c5dca1a387ca1766971bba95364f6ddc30133297dd1dad7775df3d0fc29cb743d4a47f9715efa935710f4b25baef2438d7a4f75f43709"
+  }
+}

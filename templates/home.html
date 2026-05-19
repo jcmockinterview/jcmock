@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block head %}
+<style>
+/* ── HERO ── */
+.hero {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 4rem 2rem 2rem;
+  text-align: center;
+}
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(249,115,22,0.1);
+  border: 1px solid rgba(249,115,22,0.2);
+  color: var(--accent2);
+  border-radius: 100px;
+  padding: 0.35rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 1.5rem;
+}
+.hero h1 {
+  font-family: var(--font-head);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -1.5px;
+  line-height: 1.15;
+  margin-bottom: 1rem;
+}
+.hero h1 span { color: var(--accent); }
+.hero p {
+  color: var(--muted);
+  font-size: 1.05rem;
+  max-width: 540px;
+  margin: 0 auto 2.5rem;
+  line-height: 1.7;
+}
+
+/* ── STAT CHIPS ── */
+.hero-stats {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 3rem;
+  flex-wrap: wrap;
+}
+.stat-chip {
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 100px;
+  padding: 0.4rem 1.1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.stat-chip strong { color: var(--text); font-family: var(--font-head); }
+
+/* ── MODE CARDS ── */
+.modes-wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+}
+.modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.4rem;
+}
+@media(max-width: 720px) { .modes-grid { grid-template-columns: 1fr; } }
+
+.mode-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 2.2rem 2rem;
+  text-decoration: none;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+.mode-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--mc, var(--accent));
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.mode-card:hover {
+  border-color: var(--mc, var(--accent));
+  transform: translateY(-5px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.mode-card:hover::before { opacity: 1; }
+
+.mode-icon-wrap {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  margin-bottom: 1.3rem;
+  background: var(--mic, rgba(249,115,22,0.1));
+}
+.mode-title {
+  font-family: var(--font-head);
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin-bottom: 0.6rem;
+  letter-spacing: -0.3px;
+}
+.mode-desc {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+  flex: 1;
+}
+.mode-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.8rem;
+}
+.mode-feat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.mode-feat-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--mc, var(--accent));
+  flex-shrink: 0;
+}
+.mode-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 1rem;
+  font-family: var(--font-head);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--mc, var(--accent));
+  transition: background 0.2s;
+}
+.mode-card:hover .mode-cta { background: rgba(255,255,255,0.04); }
+.mode-cta svg { width: 16px; height: 16px; }
+
+/* ── RECENT HISTORY ── */
+.history-wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.2rem;
+}
+.section-title {
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.8rem;
+}
+.history-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+}
+.history-type { font-size: 0.72rem; font-weight: 600; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 0.4rem; }
+.history-score { font-family: var(--font-head); font-size: 1.4rem; font-weight: 800; }
+.history-score.green  { color: var(--success); }
+.history-score.yellow { color: #fbbf24; }
+.history-score.red    { color: var(--error); }
+.history-meta { font-size: 0.75rem; color: var(--muted2); margin-top: 0.2rem; }
+.empty-history { color: var(--muted2); font-size: 0.88rem; padding: 1.5rem 0; }
+
+</style>
+{% endblock %}
+
+{% block body %}
+<!-- NAVBAR -->
+<nav class="navbar">
+  <a href="/home" class="nav-logo">Job<span>Cooked</span> 🍳</a>
+  <div class="nav-right">
+    <span class="nav-user">👋 {{ user_name }}</span>
+    <a href="/logout" class="btn-logout">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Logout
+    </a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-eyebrow">✨ AI-Powered Interview Prep</div>
+  <h1>Get <span>Interview Ready</span><br/>in Minutes</h1>
+  <p>Choose your preparation mode and let AI generate personalised interview questions tailored just for you.</p>
+  <div class="hero-stats">
+    <div class="stat-chip">🎯 <strong>3 Modes</strong> of practice</div>
+    <div class="stat-chip">🤖 <strong>AI Generated</strong> questions</div>
+    <div class="stat-chip">📊 <strong>Instant</strong> scoring & feedback</div>
+  </div>
+</section>
+
+<!-- MODE CARDS -->
+<div class="modes-wrap">
+  <div class="modes-grid">
+
+    <!-- Resume Interview -->
+    <a href="/resume-interview" class="mode-card" style="--mc:#f97316;--mic:rgba(249,115,22,0.1)">
+      <div class="mode-icon-wrap">📄</div>
+      <div class="mode-title">Resume Interview</div>
+      <div class="mode-desc">Upload your resume and get AI-crafted questions based on your actual experience, skills, and projects.</div>
+      <div class="mode-features">
+        <div class="mode-feat"><div class="mode-feat-dot"></div>Personalised to your CV</div>
+        <div class="mode-feat"><div class="mode-feat-dot"></div>Voice answer with mic</div>
+        <div class="mode-feat"><div class="mode-feat-dot"></div>AI feedback & scoring</div>
+      </div>
+      <div class="mode-cta">
+        Start Resume Interview
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+    </a>
+
+    <!-- Role Interview -->
+    <a href="/role-interview" class="mode-card" style="--mc:#38bdf8;--mic:rgba(56,189,248,0.1)">
+      <div class="mode-icon-wrap">💼</div>
+      <div class="mode-title">Role-Based Interview</div>
+      <div class="mode-desc">Pick your target job role — Frontend, Data Scientist, PM and more — and practice role-specific questions.</div>
+      <div class="mode-features">
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#38bdf8"></div>23+ job roles available</div>
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#38bdf8"></div>Technical & behavioral mix</div>
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#38bdf8"></div>Fresher to Senior levels</div>
+      </div>
+      <div class="mode-cta" style="color:#38bdf8">
+        Start Role Interview
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+    </a>
+
+    <!-- Aptitude Test -->
+    <a href="/aptitude" class="mode-card" style="--mc:#a78bfa;--mic:rgba(167,139,250,0.1)">
+      <div class="mode-icon-wrap">🧩</div>
+      <div class="mode-title">Aptitude Test</div>
+      <div class="mode-desc">Sharpen your logical, quantitative, and verbal reasoning with timed MCQ tests at Easy, Medium, or Hard difficulty.</div>
+      <div class="mode-features">
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#a78bfa"></div>Easy / Medium / Hard levels</div>
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#a78bfa"></div>6 topic categories</div>
+        <div class="mode-feat"><div class="mode-feat-dot" style="background:#a78bfa"></div>Timed MCQs with review</div>
+      </div>
+      <div class="mode-cta" style="color:#a78bfa">
+        Start Aptitude Test
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+    </a>
+
+  </div>
+</div>
+
+<!-- RECENT HISTORY -->
+<div class="history-wrap">
+  <div class="section-header">
+    <div class="section-title">Recent Sessions</div>
+  </div>
+  <div class="history-grid" id="history-grid">
+    <p class="empty-history">No sessions yet — start a round to see your history here!</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Recent history ──────────────────────────────────────────────
+const hist = JSON.parse(localStorage.getItem('jc_interview_history') || '[]');
+const grid = document.getElementById('history-grid');
+if (hist.length > 0) {
+  grid.innerHTML = hist.slice(0, 6).map(s => {
+    const score     = s.score || 0;
+    const cls       = score >= 70 ? 'green' : score >= 40 ? 'yellow' : 'red';
+    const typeLabel = s.type === 'resume' ? '📄 Resume' : s.type === 'role' ? '💼 Role' : '🧩 Aptitude';
+    const date      = new Date(s.date).toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+    const sub       = s.type === 'role' ? s.role : s.type === 'aptitude' ? `${s.level} · ${s.category}` : 'Resume';
+    return `<div class="history-card">
+      <div class="history-type">${typeLabel}</div>
+      <div class="history-score ${cls}">${score}%</div>
+      <div class="history-meta">${sub} · ${date}</div>
+    </div>`;
+  }).join('');
+}
+
+</script>
+{% endblock %}

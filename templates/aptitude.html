@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+{% block title %}Aptitude Test{% endblock %}
+
+{% block head %}
+<style>
+.page-wrap { max-width:780px; margin:0 auto; padding:2.5rem 2rem; }
+.screen-title { font-family:var(--font-head); font-size:2rem; font-weight:800; letter-spacing:-0.8px; margin-bottom:0.5rem; }
+.screen-title span { color:var(--accent); }
+.screen-sub { color:var(--muted); font-size:0.92rem; margin-bottom:2.5rem; }
+
+/* ── LEVEL CARDS ── */
+.levels-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; margin-bottom:2.5rem; }
+@media(max-width:600px){ .levels-grid{grid-template-columns:1fr;} }
+.level-card { background:var(--card); border:2px solid var(--border); border-radius:20px; padding:2rem 1.8rem; cursor:pointer; transition:border-color 0.2s,transform 0.15s,box-shadow 0.2s; position:relative; overflow:hidden; text-align:center; }
+.level-card::before { content:''; position:absolute; top:0;left:0;right:0; height:3px; background:var(--lc,var(--accent)); opacity:0; transition:opacity 0.2s; }
+.level-card:hover { transform:translateY(-4px); box-shadow:0 20px 60px rgba(0,0,0,0.4); }
+.level-card:hover::before,.level-card.selected::before { opacity:1; }
+.level-card.selected { border-color:var(--lc,var(--accent)); }
+.level-card:hover { border-color:var(--lc,var(--accent)); }
+.level-card[data-level=easy]   { --lc:#22c55e; }
+.level-card[data-level=medium] { --lc:#f97316; }
+.level-card[data-level=hard]   { --lc:#ef4444; }
+.level-emoji { font-size:2.8rem; margin-bottom:1rem; display:block; }
+.level-name { font-family:var(--font-head); font-size:1.3rem; font-weight:800; margin-bottom:0.5rem; }
+.level-card[data-level=easy]   .level-name { color:#22c55e; }
+.level-card[data-level=medium] .level-name { color:#f97316; }
+.level-card[data-level=hard]   .level-name { color:#ef4444; }
+.level-desc { font-size:0.85rem; color:var(--muted); margin-bottom:1.2rem; line-height:1.55; }
+.level-meta { display:flex; justify-content:center; gap:0.6rem; flex-wrap:wrap; }
+.meta-pill { font-size:0.72rem; font-weight:500; padding:0.2rem 0.65rem; border-radius:100px; border:1px solid var(--border2); color:var(--muted); }
+.level-check { position:absolute; top:0.9rem; right:0.9rem; width:22px; height:22px; border-radius:50%; background:var(--lc,var(--accent)); display:none; align-items:center; justify-content:center; }
+.level-card.selected .level-check { display:flex; }
+.level-check svg { width:13px; height:13px; stroke:#fff; stroke-width:3; fill:none; }
+
+/* ── CATEGORY ── */
+.category-section { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:1.5rem; }
+.category-section h4 { font-family:var(--font-head); font-size:0.88rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:1rem; }
+.cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:0.6rem; }
+.cat-chip { display:flex; align-items:center; gap:0.5rem; padding:0.6rem 0.9rem; border-radius:var(--radius-sm); border:1px solid var(--border2); background:var(--bg2); color:var(--muted); font-size:0.83rem; cursor:pointer; transition:all 0.2s; font-family:var(--font-body); }
+.cat-chip:hover { border-color:var(--accent); color:var(--text); }
+.cat-chip.selected { border-color:var(--accent); background:rgba(249,115,22,0.1); color:var(--accent2); }
+.q-count-row { display:flex; align-items:center; justify-content:space-between; margin-top:1.2rem; padding-top:1.2rem; border-top:1px solid var(--border); }
+.q-count-row label { font-size:0.82rem; color:var(--muted); font-weight:500; }
+.q-count-row select { background:var(--bg2); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:0.5rem 0.9rem; color:var(--text); font-family:var(--font-body); font-size:0.88rem; outline:none; }
+.q-count-row select:focus { border-color:var(--accent); }
+
+/* ── QUIZ ── */
+.quiz-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; }
+.q-counter { font-family:var(--font-head); font-size:0.85rem; font-weight:700; color:var(--muted); }
+.q-counter span { color:var(--accent); }
+.q-progress-bar { flex:1; height:4px; background:var(--border2); border-radius:100px; margin:0 1.2rem; overflow:hidden; }
+.q-progress-fill { height:100%; background:var(--accent); border-radius:100px; transition:width 0.5s ease; }
+.timer-badge { background:var(--bg3); border:1px solid var(--border2); border-radius:100px; padding:0.3rem 0.8rem; font-size:0.82rem; font-family:var(--font-head); font-weight:700; color:var(--muted); min-width:52px; text-align:center; }
+.timer-badge.warning { color:#fbbf24; border-color:rgba(251,191,36,0.3); }
+.timer-badge.danger  { color:var(--error); border-color:rgba(239,68,68,0.3); animation:flash 0.8s ease-in-out infinite; }
+@keyframes flash{0%,100%{opacity:1}50%{opacity:0.5}}
+.quiz-meta-bar { display:flex; align-items:center; gap:0.6rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+.level-badge { font-size:0.75rem; font-weight:700; font-family:var(--font-head); padding:0.25rem 0.75rem; border-radius:100px; }
+.level-badge.easy   { background:rgba(34,197,94,0.12);  color:#22c55e; border:1px solid rgba(34,197,94,0.25);  }
+.level-badge.medium { background:rgba(249,115,22,0.12); color:#f97316; border:1px solid rgba(249,115,22,0.25); }
+.level-badge.hard   { background:rgba(239,68,68,0.12);  color:#ef4444; border:1px solid rgba(239,68,68,0.25);  }
+.cat-badge { font-size:0.75rem; font-weight:500; padding:0.25rem 0.75rem; border-radius:100px; background:var(--bg3); border:1px solid var(--border2); color:var(--muted); }
+.question-card { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:2rem 2.2rem; margin-bottom:1.5rem; position:relative; overflow:hidden; }
+.question-card::before { content:''; position:absolute; top:0;left:0;right:0; height:3px; background:var(--qline,var(--accent)); }
+.q-number { font-size:0.72rem; font-weight:600; letter-spacing:0.6px; text-transform:uppercase; color:var(--muted2); margin-bottom:0.8rem; }
+.question-text { font-family:var(--font-head); font-size:1.2rem; font-weight:700; line-height:1.5; }
+.options-list { display:flex; flex-direction:column; gap:0.7rem; margin-bottom:1.5rem; }
+.option-btn { display:flex; align-items:center; gap:1rem; width:100%; background:var(--card); border:1.5px solid var(--border2); border-radius:var(--radius); padding:1rem 1.3rem; cursor:pointer; text-align:left; font-family:var(--font-body); font-size:0.93rem; color:var(--text); transition:border-color 0.15s, background 0.15s, transform 0.1s; position:relative; }
+.option-btn:hover:not(.locked) { border-color:var(--accent); background:rgba(249,115,22,0.05); transform:translateX(3px); }
+.option-btn.selected  { border-color:var(--accent); background:rgba(249,115,22,0.08); }
+.option-btn.correct   { border-color:var(--success); background:rgba(34,197,94,0.08); }
+.option-btn.wrong     { border-color:var(--error); background:rgba(239,68,68,0.08); }
+.option-key { width:28px; height:28px; border-radius:8px; border:1.5px solid var(--border2); display:flex; align-items:center; justify-content:center; font-family:var(--font-head); font-size:0.75rem; font-weight:700; flex-shrink:0; transition:all 0.2s; color:var(--muted); }
+.option-btn.selected .option-key { border-color:var(--accent); background:rgba(249,115,22,0.15); color:var(--accent); }
+.option-btn.correct  .option-key { border-color:var(--success); background:rgba(34,197,94,0.15); color:var(--success); }
+.option-btn.wrong    .option-key { border-color:var(--error);   background:rgba(239,68,68,0.15);  color:var(--error);   }
+.option-text { flex:1; line-height:1.45; }
+.option-icon { margin-left:auto; font-size:1.1rem; display:none; }
+.option-btn.correct .option-icon, .option-btn.wrong .option-icon { display:block; }
+.explanation-box { display:none; background:var(--bg2); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:1rem 1.2rem; font-size:0.87rem; color:var(--muted); line-height:1.6; margin-bottom:1.5rem; animation:fadeIn 0.3s ease; }
+.explanation-box.show { display:block; }
+.explanation-box strong { color:var(--accent2); font-family:var(--font-head); }
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.quiz-nav { display:flex; gap:1rem; }
+.btn-next-q { flex:1; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-sm); padding:0.9rem; font-family:var(--font-head); font-size:1rem; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition:background 0.2s; }
+.btn-next-q:hover { background:var(--accent2); }
+.btn-next-q:disabled { background:var(--muted2); cursor:not-allowed; }
+.btn-skip-q { background:transparent; border:1px solid var(--border2); color:var(--muted); border-radius:var(--radius-sm); padding:0.9rem 1.4rem; font-family:var(--font-body); font-size:0.88rem; cursor:pointer; }
+.dot-nav { display:flex; justify-content:center; gap:0.4rem; margin-top:1.5rem; flex-wrap:wrap; }
+.q-dot { width:10px; height:10px; border-radius:50%; background:var(--border2); border:1px solid var(--border2); cursor:pointer; transition:all 0.2s; }
+.q-dot.current  { background:var(--accent); border-color:var(--accent); }
+.q-dot.answered-correct { background:var(--success); border-color:var(--success); }
+.q-dot.answered-wrong   { background:var(--error);   border-color:var(--error);   }
+.q-dot.skipped { background:var(--muted2); border-color:var(--muted2); }
+
+/* ── RESULT ── */
+.result-hero { text-align:center; margin-bottom:2.5rem; }
+.score-ring-wrap { width:150px; height:150px; margin:0 auto 1.5rem; position:relative; }
+.score-ring-wrap svg { width:150px; height:150px; transform:rotate(-90deg); }
+.score-ring-bg   { fill:none; stroke:var(--border2); stroke-width:10; }
+.score-ring-fill { fill:none; stroke:var(--accent); stroke-width:10; stroke-linecap:round; stroke-dasharray:345; stroke-dashoffset:345; transition:stroke-dashoffset 1.5s ease; }
+.score-ring-text { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.score-num  { font-family:var(--font-head); font-size:2.2rem; font-weight:800; line-height:1; }
+.score-lbl  { font-size:0.72rem; color:var(--muted); margin-top:0.3rem; }
+.result-hero h2 { font-family:var(--font-head); font-size:1.7rem; font-weight:800; margin-bottom:0.4rem; }
+.result-hero p  { color:var(--muted); font-size:0.92rem; }
+.result-level-tag { display:inline-flex; align-items:center; gap:0.4rem; border-radius:100px; padding:0.3rem 0.9rem; font-size:0.78rem; font-weight:600; font-family:var(--font-head); margin-top:0.8rem; }
+.result-level-tag.easy   { background:rgba(34,197,94,0.1);  color:#22c55e; border:1px solid rgba(34,197,94,0.25);  }
+.result-level-tag.medium { background:rgba(249,115,22,0.1); color:#f97316; border:1px solid rgba(249,115,22,0.25); }
+.result-level-tag.hard   { background:rgba(239,68,68,0.1);  color:#ef4444; border:1px solid rgba(239,68,68,0.25);  }
+.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:0.8rem; margin-bottom:2rem; }
+@media(max-width:560px){ .stats-row{grid-template-columns:repeat(2,1fr);} }
+.stat-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.2rem; text-align:center; }
+.stat-num { font-family:var(--font-head); font-size:1.6rem; font-weight:800; line-height:1; margin-bottom:0.3rem; }
+.stat-num.green  { color:var(--success); }
+.stat-num.red    { color:var(--error); }
+.stat-num.yellow { color:#fbbf24; }
+.stat-num.blue   { color:#38bdf8; }
+.stat-lbl { font-size:0.75rem; color:var(--muted); }
+.review-section h3 { font-family:var(--font-head); font-size:1rem; font-weight:700; margin-bottom:1rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+.review-list { display:flex; flex-direction:column; gap:0.8rem; margin-bottom:2rem; }
+.review-item { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:1.2rem 1.5rem; border-left:3px solid var(--border2); }
+.review-item.correct-item  { border-left-color:var(--success); }
+.review-item.wrong-item    { border-left-color:var(--error);   }
+.review-item.skipped-item  { border-left-color:var(--muted2);  }
+.review-q-row { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:0.6rem; }
+.review-q-text { font-size:0.88rem; font-weight:500; flex:1; line-height:1.5; }
+.review-status { font-size:0.72rem; font-weight:700; font-family:var(--font-head); padding:0.2rem 0.6rem; border-radius:100px; flex-shrink:0; }
+.review-status.correct { background:rgba(34,197,94,0.12); color:var(--success); }
+.review-status.wrong   { background:rgba(239,68,68,0.12);  color:var(--error);   }
+.review-status.skipped { background:rgba(90,90,110,0.2);   color:var(--muted);   }
+.review-ans { display:flex; gap:1.5rem; font-size:0.82rem; margin-bottom:0.5rem; flex-wrap:wrap; }
+.review-your { color:var(--muted); }
+.review-your span { color:var(--error); font-weight:500; }
+.review-your.ok span { color:var(--success); }
+.review-correct { color:var(--muted); }
+.review-correct span { color:var(--success); font-weight:500; }
+.review-exp { font-size:0.8rem; color:var(--muted2); font-style:italic; }
+.result-actions { display:flex; gap:1rem; }
+.btn-email { flex:1; background:var(--accent); color:#fff; border:none; border-radius:var(--radius-sm); padding:0.9rem; font-family:var(--font-head); font-size:0.95rem; font-weight:600; cursor:pointer; transition:background 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem; }
+.btn-email:hover { background:var(--accent2); }
+.btn-restart { background:transparent; border:1px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:0.9rem 1.5rem; font-family:var(--font-body); font-size:0.9rem; cursor:pointer; }
+</style>
+{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+  <a href="/home" class="nav-logo">Job<span>Cooked</span> 🍳</a>
+  <a href="/home" class="nav-back">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    Back to Home
+  </a>
+</nav>
+
+<div class="steps-bar">
+  <div class="step active" id="step-1"><div class="step-circle">1</div><div class="step-label">Choose Level</div></div>
+  <div class="step" id="step-2"><div class="step-circle">2</div><div class="step-label">Generating</div></div>
+  <div class="step" id="step-3"><div class="step-circle">3</div><div class="step-label">Quiz</div></div>
+  <div class="step" id="step-4"><div class="step-circle">4</div><div class="step-label">Results</div></div>
+</div>
+
+<!-- SCREEN 1: LEVEL SELECT -->
+<div class="screen active" id="screen-level">
+  <div class="page-wrap">
+    <h1 class="screen-title">Aptitude <span>Test</span> 🧩</h1>
+    <p class="screen-sub">Choose difficulty and topic. AI generates fresh questions every time.</p>
+    <div class="levels-grid">
+      <div class="level-card" data-level="easy" onclick="selectLevel('easy',this)">
+        <div class="level-check"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div>
+        <span class="level-emoji">🌱</span>
+        <div class="level-name">Easy</div>
+        <div class="level-desc">Build your foundation. Straightforward questions, perfect for beginners.</div>
+        <div class="level-meta"><span class="meta-pill">⏱ 45 sec/q</span><span class="meta-pill">Basic concepts</span></div>
+      </div>
+      <div class="level-card" data-level="medium" onclick="selectLevel('medium',this)">
+        <div class="level-check"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div>
+        <span class="level-emoji">🔥</span>
+        <div class="level-name">Medium</div>
+        <div class="level-desc">Intermediate challenges requiring reasoning and application under time pressure.</div>
+        <div class="level-meta"><span class="meta-pill">⏱ 60 sec/q</span><span class="meta-pill">Most popular</span></div>
+      </div>
+      <div class="level-card" data-level="hard" onclick="selectLevel('hard',this)">
+        <div class="level-check"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div>
+        <span class="level-emoji">💀</span>
+        <div class="level-name">Hard</div>
+        <div class="level-desc">Expert-level problems. Complex multi-step reasoning, interview-grade difficulty.</div>
+        <div class="level-meta"><span class="meta-pill">⏱ 90 sec/q</span><span class="meta-pill">Advanced logic</span></div>
+      </div>
+    </div>
+    <div class="category-section">
+      <h4>Select Topic</h4>
+      <div class="cat-grid">
+        <button class="cat-chip selected" data-cat="all"     onclick="selectCat(this)">🎯 All Topics</button>
+        <button class="cat-chip"          data-cat="logical" onclick="selectCat(this)">🧠 Logical Reasoning</button>
+        <button class="cat-chip"          data-cat="quant"   onclick="selectCat(this)">🔢 Quantitative</button>
+        <button class="cat-chip"          data-cat="verbal"  onclick="selectCat(this)">📝 Verbal Ability</button>
+        <button class="cat-chip"          data-cat="data"    onclick="selectCat(this)">📊 Data Interpretation</button>
+        <button class="cat-chip"          data-cat="coding"  onclick="selectCat(this)">💻 Basic Coding</button>
+      </div>
+      <div class="q-count-row">
+        <label>Number of Questions</label>
+        <select id="q-count">
+          <option value="5">5 Questions</option>
+          <option value="10" selected>10 Questions</option>
+          <option value="15">15 Questions</option>
+          <option value="20">20 Questions</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn-primary" id="btn-start" disabled onclick="startLoading()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      Start Aptitude Test
+    </button>
+  </div>
+</div>
+
+<!-- SCREEN 2: LOADING -->
+<div class="screen" id="screen-loading">
+  <div class="loading-screen">
+    <div class="loader-ring"></div>
+    <h3 id="load-title">Preparing test...</h3>
+    <p id="load-sub">Generating questions</p>
+    <div class="loading-steps">
+      <div class="loading-step current" id="ls-1"><div class="loading-step-dot"></div>Setting difficulty parameters</div>
+      <div class="loading-step" id="ls-2"><div class="loading-step-dot"></div>Selecting topic questions</div>
+      <div class="loading-step" id="ls-3"><div class="loading-step-dot"></div>Generating MCQ options</div>
+      <div class="loading-step" id="ls-4"><div class="loading-step-dot"></div>Preparing session</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 3: QUIZ -->
+<div class="screen" id="screen-quiz">
+  <div class="page-wrap">
+    <div class="quiz-header">
+      <span class="q-counter">Q <span id="q-current">1</span> of <span id="q-total">10</span></span>
+      <div class="q-progress-bar"><div class="q-progress-fill" id="q-progress" style="width:10%"></div></div>
+      <div class="timer-badge" id="timer-display">1:00</div>
+    </div>
+    <div class="quiz-meta-bar">
+      <span class="level-badge" id="quiz-level-badge">Medium</span>
+      <span class="cat-badge" id="quiz-cat-badge">General</span>
+    </div>
+    <div class="question-card" id="question-card">
+      <div class="q-number" id="q-number">Question 1</div>
+      <div class="question-text" id="question-text">Loading...</div>
+    </div>
+    <div class="options-list" id="options-list"></div>
+    <div class="explanation-box" id="explanation-box">
+      <strong>💡 Explanation:</strong> <span id="explanation-text"></span>
+    </div>
+    
+    <div class="quiz-nav">
+      <button class="btn-skip-q" id="btn-skip" onclick="skipQ()">Skip</button>
+      <button class="btn-next-q" id="btn-next" onclick="nextQ()" disabled>
+        Next <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div class="dot-nav" id="dot-nav"></div>
+  </div>
+</div>
+
+<!-- SCREEN 4: RESULT -->
+<div class="screen" id="screen-result">
+  <div class="page-wrap">
+    <div class="result-hero">
+      <div class="score-ring-wrap">
+        <svg viewBox="0 0 120 120"><circle class="score-ring-bg" cx="60" cy="60" r="55"/><circle class="score-ring-fill" id="score-ring" cx="60" cy="60" r="55"/></svg>
+        <div class="score-ring-text"><div class="score-num" id="final-score">0%</div><div class="score-lbl">Score</div></div>
+      </div>
+      <h2 id="result-title">Test Complete!</h2>
+      <p id="result-subtitle">Here's how you did</p>
+      <div class="result-level-tag" id="result-level-tag">🔥 Medium</div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-num green" id="stat-correct">0</div><div class="stat-lbl">Correct</div></div>
+      <div class="stat-card"><div class="stat-num red"   id="stat-wrong">0</div><div class="stat-lbl">Wrong</div></div>
+      <div class="stat-card"><div class="stat-num yellow" id="stat-skipped">0</div><div class="stat-lbl">Skipped</div></div>
+      <div class="stat-card"><div class="stat-num blue"  id="stat-time">0s</div><div class="stat-lbl">Avg. Time</div></div>
+    </div>
+    <div class="review-section">
+      <h3>Question Review</h3>
+      <div class="review-list" id="review-list"></div>
+    </div>
+    <div class="result-actions">
+      <button class="btn-email" id="btn-send-report" onclick="sendReport()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+        Send Report to Email
+      </button>
+      <button class="btn-restart" onclick="location.reload()">Try Again</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ST = { level:null, category:'all', qCount:10, questions:[], currentQ:0, selectedOpt:null, answered:[], userAnswers:[], timerInterval:null, timeLeft:60, questionTimes:[], questionStart:0 };
+const TIME_LIMITS = { easy:45, medium:60, hard:90 };
+
+function setStep(n) { for(let i=1;i<=4;i++){const e=document.getElementById('step-'+i);e.classList.remove('active','done');if(i<n)e.classList.add('done');if(i===n)e.classList.add('active');} }
+function showScreen(id) { document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo(0,0); }
+
+function selectLevel(level, el) { ST.level=level; document.querySelectorAll('.level-card').forEach(c=>c.classList.remove('selected')); el.classList.add('selected'); document.getElementById('btn-start').disabled=false; }
+function selectCat(el) { ST.category=el.dataset.cat; document.querySelectorAll('.cat-chip').forEach(c=>c.classList.remove('selected')); el.classList.add('selected'); }
+
+async function startLoading() {
+  if (!ST.level) return;
+  ST.qCount = parseInt(document.getElementById('q-count').value);
+  setStep(2); showScreen('screen-loading');
+  document.getElementById('load-title').textContent = `Preparing ${ST.level} level test...`;
+
+  const steps = ['ls-1','ls-2','ls-3','ls-4'];
+  const timers = steps.map((id,i) => new Promise(res => setTimeout(() => {
+    document.getElementById(id).classList.remove('current'); document.getElementById(id).classList.add('done');
+    if (i+1<steps.length) document.getElementById(steps[i+1]).classList.add('current'); res();
+  }, (i+1)*700)));
+
+  // Start timers in background
+  timers.forEach(t => t);
+
+  let data;
+  try {
+    const res = await fetch('/api/aptitude/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ level:ST.level, category:ST.category, q_count:ST.qCount })
+    });
+    data = await res.json();
+  } catch(e) {
+    showAptError('Network error — could not reach the server. Check your connection.'); return;
+  }
+
+  await delay(2800);
+
+  if (data.ok) {
+    ST.questions    = data.questions;
+    ST.answered     = new Array(data.questions.length).fill(null);
+    ST.userAnswers  = new Array(data.questions.length).fill(null);
+    ST.questionTimes= new Array(data.questions.length).fill(0);
+    await delay(300);
+    beginQuiz();
+  } else {
+    showAptError(data.msg || 'Failed to generate questions.');
+  }
+}
+
+function showAptError(msg) {
+  setStep(1); showScreen('screen-level');
+  let banner = document.getElementById('apt-error-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'apt-error-banner';
+    banner.style.cssText = 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;border-radius:8px;padding:1rem 1.2rem;margin-top:1rem;font-size:0.88rem;line-height:1.6;';
+    document.querySelector('.category-section').after(banner);
+  }
+  banner.innerHTML = `<strong style="display:block;margin-bottom:0.3rem">⚠️ Question Generation Failed</strong>${msg}<br><span style="color:var(--muted2);font-size:0.8rem;margin-top:0.4rem;display:block">Make sure your <code style="background:rgba(255,255,255,0.08);padding:0.1rem 0.4rem;border-radius:4px">OPENROUTER_API_KEY</code> is set and valid, then try again.</span>`;
+}
+
+function beginQuiz() {
+  ST.currentQ=0; setStep(3); showScreen('screen-quiz');
+  const lb=document.getElementById('quiz-level-badge');
+  lb.textContent=ST.level.charAt(0).toUpperCase()+ST.level.slice(1);
+  lb.className='level-badge '+ST.level;
+  document.getElementById('q-total').textContent=ST.questions.length;
+  buildDots(); loadQ(0);
+}
+
+function buildDots() {
+  const nav=document.getElementById('dot-nav'); nav.innerHTML='';
+  ST.questions.forEach((_,i) => {
+    const d=document.createElement('div'); d.className='q-dot'+(i===0?' current':'');
+    d.title='Question '+(i+1); d.addEventListener('click',()=>jumpTo(i)); nav.appendChild(d);
+  });
+}
+function updateDots() {
+  document.querySelectorAll('.q-dot').forEach((d,i) => {
+    d.className='q-dot';
+    if(i===ST.currentQ) d.classList.add('current');
+    else if(ST.answered[i]==='correct') d.classList.add('answered-correct');
+    else if(ST.answered[i]==='wrong')   d.classList.add('answered-wrong');
+    else if(ST.answered[i]==='skipped') d.classList.add('skipped');
+  });
+}
+
+function loadQ(idx) {
+  const q=ST.questions[idx]; if(!q){finishQuiz();return;}
+  ST.selectedOpt=null; ST.questionStart=Date.now();
+  document.getElementById('q-current').textContent=idx+1;
+  document.getElementById('q-number').textContent=`Question ${idx+1}`;
+  document.getElementById('question-text').textContent=q.question;
+  document.getElementById('quiz-cat-badge').textContent=q.category||'General';
+  document.getElementById('q-progress').style.width=((idx+1)/ST.questions.length*100)+'%';
+  const colorMap={easy:'#22c55e',medium:'#f97316',hard:'#ef4444'};
+  document.getElementById('question-card').style.setProperty('--qline', colorMap[ST.level]);
+  document.getElementById('explanation-box').classList.remove('show');
+
+  const keys=['A','B','C','D'];
+  document.getElementById('options-list').innerHTML = q.options.map((opt,i) =>
+    `<button class="option-btn" onclick="selectOpt(${i},this)">
+      <div class="option-key">${keys[i]}</div>
+      <div class="option-text">${opt}</div>
+      <div class="option-icon"></div>
+    </button>`
+  ).join('');
+
+  const isLast=idx===ST.questions.length-1;
+  const btn=document.getElementById('btn-next'); btn.disabled=true;
+  btn.innerHTML=isLast?'Finish Test <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>':'Next <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+  document.getElementById('btn-skip').style.display='';
+
+  if (ST.answered[idx]!==null) restoreQ(idx);
+  else startTimer();
+  updateDots();
+}
+
+function selectOpt(idx, btnEl) {
+  const q=ST.questions[ST.currentQ];
+  const locked=[...document.querySelectorAll('.option-btn')].some(b=>b.classList.contains('correct')||b.classList.contains('wrong'));
+  if (locked) return;
+  ST.questionTimes[ST.currentQ]=Math.round((Date.now()-ST.questionStart)/1000);
+  ST.userAnswers[ST.currentQ]=idx;
+  clearInterval(ST.timerInterval);
+  const isCorrect=idx===q.correct;
+  ST.answered[ST.currentQ]=isCorrect?'correct':'wrong';
+  const btns=document.querySelectorAll('.option-btn');
+  btns.forEach((b,i) => {
+    b.classList.add('locked');
+    const icon=b.querySelector('.option-icon');
+    if(i===q.correct){b.classList.add('correct');icon.textContent='✓';}
+    else if(i===idx&&!isCorrect){b.classList.add('wrong');icon.textContent='✗';}
+  });
+  document.getElementById('explanation-text').textContent=q.explanation||'See correct answer above.';
+  document.getElementById('explanation-box').classList.add('show');
+  showToast(isCorrect?'Correct! 🎉':'Wrong answer. See explanation.', isCorrect?'success':'error');
+  document.getElementById('btn-next').disabled=false;
+  document.getElementById('btn-skip').style.display='none';
+  updateDots();
+}
+
+function restoreQ(idx) {
+  clearInterval(ST.timerInterval); document.getElementById('timer-display').textContent='—';
+  const q=ST.questions[idx]; const ua=ST.userAnswers[idx];
+  const btns=document.querySelectorAll('.option-btn');
+  btns.forEach((b,i) => {
+    b.classList.add('locked'); const icon=b.querySelector('.option-icon');
+    if(i===q.correct){b.classList.add('correct');icon.textContent='✓';}
+    else if(i===ua&&ua!==null&&i!==q.correct){b.classList.add('wrong');icon.textContent='✗';}
+  });
+  if (ST.answered[idx]!=='skipped') {
+    document.getElementById('explanation-text').textContent=q.explanation||'';
+    document.getElementById('explanation-box').classList.add('show');
+  }
+  document.getElementById('btn-next').disabled=false;
+  document.getElementById('btn-skip').style.display='none';
+}
+
+function jumpTo(idx) { clearInterval(ST.timerInterval); ST.currentQ=idx; loadQ(idx); }
+function skipQ() {
+  clearInterval(ST.timerInterval); ST.answered[ST.currentQ]='skipped'; ST.userAnswers[ST.currentQ]=null;
+  ST.questionTimes[ST.currentQ]=TIME_LIMITS[ST.level]; updateDots();
+  if(ST.currentQ===ST.questions.length-1){finishQuiz();return;} ST.currentQ++; loadQ(ST.currentQ);
+}
+function nextQ() {
+  clearInterval(ST.timerInterval);
+  if(ST.currentQ===ST.questions.length-1){finishQuiz();return;} ST.currentQ++; loadQ(ST.currentQ);
+}
+
+function startTimer() {
+  clearInterval(ST.timerInterval); ST.timeLeft=TIME_LIMITS[ST.level];
+  updateTimerDisplay();
+  ST.timerInterval=setInterval(()=>{
+    ST.timeLeft--; updateTimerDisplay();
+    if(ST.timeLeft<=0){
+      clearInterval(ST.timerInterval); ST.answered[ST.currentQ]='skipped'; ST.userAnswers[ST.currentQ]=null;
+      ST.questionTimes[ST.currentQ]=TIME_LIMITS[ST.level]; showToast('Time up! Question skipped.','error'); updateDots();
+      setTimeout(()=>{ if(ST.currentQ===ST.questions.length-1){finishQuiz();return;}ST.currentQ++;loadQ(ST.currentQ);},1200);
+    }
+  },1000);
+}
+function updateTimerDisplay() {
+  const m=Math.floor(ST.timeLeft/60),s=ST.timeLeft%60;
+  const el=document.getElementById('timer-display'); el.textContent=`${m}:${s.toString().padStart(2,'0')}`; el.className='timer-badge';
+  const lim=TIME_LIMITS[ST.level];
+  if(ST.timeLeft<=Math.floor(lim*0.33)&&ST.timeLeft>Math.floor(lim*0.15)) el.classList.add('warning');
+  if(ST.timeLeft<=Math.floor(lim*0.15)) el.classList.add('danger');
+}
+
+function finishQuiz() {
+  clearInterval(ST.timerInterval); setStep(4); showScreen('screen-result');
+  const total   = ST.questions.length;
+  const correct = ST.answered.filter(a=>a==='correct').length;
+  const wrong   = ST.answered.filter(a=>a==='wrong').length;
+  const skipped = ST.answered.filter(a=>a==='skipped'||a===null).length;
+  const pct     = Math.round(correct/total*100);
+  const avgTime = Math.round(ST.questionTimes.reduce((a,b)=>a+b,0)/total);
+
+  // Score ring + stats (immediate)
+  setTimeout(()=>{
+    const c=2*Math.PI*55;
+    const ring=document.getElementById('score-ring');
+    ring.style.strokeDashoffset=c-(pct/100)*c;
+    ring.style.stroke=pct>=70?'#22c55e':pct>=40?'#fbbf24':'#ef4444';
+    animateNum('final-score',0,pct,1500,'%');
+  },300);
+  document.getElementById('result-title').textContent=pct>=80?'🏆 Outstanding!':pct>=60?'🎉 Well Done!':pct>=40?'👍 Good Try!':'💪 Keep Practicing!';
+  document.getElementById('result-subtitle').textContent=`${correct} correct out of ${total} questions`;
+  const emap={easy:'🌱',medium:'🔥',hard:'💀'};
+  const ltag=document.getElementById('result-level-tag');
+  ltag.textContent=`${emap[ST.level]} ${ST.level.charAt(0).toUpperCase()+ST.level.slice(1)} Level`;
+  ltag.className='result-level-tag '+ST.level;
+  document.getElementById('stat-correct').textContent=correct;
+  document.getElementById('stat-wrong').textContent=wrong;
+  document.getElementById('stat-skipped').textContent=skipped;
+  document.getElementById('stat-time').textContent=avgTime+'s';
+
+  // Show loading state while AI generates feedback
+  document.getElementById('review-list').innerHTML=`
+    <div style="text-align:center;padding:2rem;color:var(--muted)">
+      <div style="width:32px;height:32px;border:3px solid var(--border2);border-top-color:var(--accent);
+                  border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem"></div>
+      AI is generating feedback for each question...
+    </div>`;
+
+  const keys=['A','B','C','D'];
+
+  // Send all wrong/skipped questions to AI for explanations in parallel
+  const promises = ST.questions.map((q,i) => {
+    const status  = ST.answered[i];
+    const ua      = ST.userAnswers[i];
+    if (status === 'skipped' || ua === null) return Promise.resolve(null);
+    const uAns = keys[ua]+'. '+q.options[ua];
+    const cAns = keys[q.correct]+'. '+q.options[q.correct];
+    const isCorrect = status === 'correct';
+    // Only call API for wrong answers to get detailed explanation
+    if (isCorrect) return Promise.resolve({ ok:true, isCorrect:true, explanation: q.explanation||'' });
+    return fetch('/api/analyze-answer',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        question: q.question,
+        answer: `Selected: ${uAns}. Correct was: ${cAns}. ${q.explanation||''}`,
+        interview_type:'aptitude', category: q.category||'Aptitude'
+      })
+    }).then(r=>r.json()).then(d=>({ ok:true, isCorrect:false, aiData:d, explanation:q.explanation||'' }))
+      .catch(()=>({ ok:true, isCorrect:false, explanation:q.explanation||'' }));
+  });
+
+  Promise.all(promises).then(results => {
+    document.getElementById('review-list').innerHTML = ST.questions.map((q,i)=>{
+      const st  = ST.answered[i];
+      const ua  = ST.userAnswers[i];
+      const res = results[i];
+      const scls = st==='correct'?'correct':st==='wrong'?'wrong':'skipped';
+      const slbl = st==='correct'?'✓ Correct':st==='wrong'?'✗ Wrong':'— Skipped';
+      const uTxt = ua!==null&&ua!==undefined ? `${keys[ua]}. ${q.options[ua]}` : '—';
+      const cTxt = `${keys[q.correct]}. ${q.options[q.correct]}`;
+
+      // Build AI feedback block for wrong answers
+      let aiHTML = '';
+      if (res && !res.isCorrect && res.aiData && res.aiData.ok) {
+        const aq = res.aiData.answer_quality;
+        const improvs = (aq.improvements||[]).slice(0,3).map(imp =>
+          `<span style="font-size:0.72rem;padding:0.2rem 0.6rem;border-radius:100px;border:1px solid rgba(249,115,22,0.3);color:var(--accent2);background:rgba(249,115,22,0.06);margin-right:4px;margin-top:4px;display:inline-block">💡 ${imp}</span>`
+        ).join('');
+        if (aq && (aq.feedback || improvs)) {
+          aiHTML = `
+            <div style="margin-top:0.8rem;background:var(--bg2);border-radius:8px;padding:0.8rem 1rem;border:1px solid var(--border)">
+              <div style="font-size:0.72rem;font-weight:700;color:var(--error);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:0.5rem">AI Feedback</div>
+              <div style="font-size:0.8rem;color:var(--muted);line-height:1.6;margin-bottom:0.5rem">${aq.feedback||''}</div>
+              <div>${improvs}</div>
+            </div>`;
+        }
+      }
+
+      // Explanation block (always shown if available)
+      const expHTML = q.explanation
+        ? `<div class="review-exp" style="font-size:0.8rem;color:var(--muted2);font-style:italic;margin-top:0.5rem">💡 ${q.explanation}</div>`
+        : '';
+
+      return `<div class="review-item ${scls}-item">
+        <div class="review-q-row">
+          <div class="review-q-text"><strong>Q${i+1}.</strong> ${q.question}</div>
+          <div class="review-status ${scls}">${slbl}</div>
+        </div>
+        <div class="review-ans">
+          <div class="review-your${st==='correct'?' ok':''}">Your answer: <span>${uTxt}</span></div>
+          ${st!=='correct'?`<div class="review-correct">Correct: <span>${cTxt}</span></div>`:''}
+        </div>
+        ${expHTML}
+        ${aiHTML}
+      </div>`;
+    }).join('');
+
+    const hist=JSON.parse(localStorage.getItem('jc_interview_history')||'[]');
+    hist.unshift({date:new Date().toISOString(),type:'aptitude',level:ST.level,category:ST.category,score:pct,correct,wrong,skipped,total});
+    localStorage.setItem('jc_interview_history',JSON.stringify(hist.slice(0,20)));
+  });
+}
+async function sendReport() {
+  const btn = document.getElementById('btn-send-report');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg> Sending...';
+
+  const keys = ['A','B','C','D'];
+  // Build questions from the MCQ data
+  const qs = ST.questions.map((q, i) => {
+    const status  = ST.answered[i];
+    const userIdx = ST.userAnswers[i];
+    const isCorrect = status === 'correct';
+    const score = isCorrect ? 100 : status === 'wrong' ? 20 : 0;
+    const userAns = userIdx !== null && userIdx !== undefined
+      ? keys[userIdx] + '. ' + q.options[userIdx] : 'Skipped';
+    const corrAns = keys[q.correct] + '. ' + q.options[q.correct];
+    return {
+      question: q.question,
+      answer:   userAns,
+      score:    score,
+      category: q.category || 'Aptitude',
+      feedback: isCorrect
+        ? '✅ Correct! ' + (q.explanation || '')
+        : status === 'wrong'
+          ? '❌ Incorrect. Correct answer: ' + corrAns + '. ' + (q.explanation || '')
+          : '⏭ Skipped. Correct answer: ' + corrAns,
+    };
+  });
+
+  const total   = ST.questions.length;
+  const correct = ST.answered.filter(a => a === 'correct').length;
+  const pct     = Math.round(correct / total * 100);
+
+  try {
+    const res = await fetch('/api/report/generate', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        interview_type: 'aptitude',
+        level:          ST.level,
+        category:       ST.category,
+        overall_score:  pct,
+        questions:      qs,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ ' + data.msg, 'success');
+    } else {
+      showToast('❌ ' + (data.msg || 'Failed to send report.'), 'error');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    showToast('❌ Network error. Please try again.', 'error');
+    btn.disabled = false;
+  }
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg> Send Report to Email';
+}
+
+
+// ── AI Aptitude Answer Analysis ───────────────────────────────────
+async function analyzeAnswer(question, userAnswer, correctAnswer, isCorrect, explanation) {
+  const panel=document.getElementById('analysis-panel');
+  const loading=document.getElementById('analysis-loading');
+  const results=document.getElementById('analysis-results');
+  const badge=document.getElementById('verdict-badge');
+  panel.classList.add('show');
+  loading.style.display='flex'; results.style.display='none';
+  badge.textContent='Analysing...'; badge.className='verdict-badge fair';
+
+  try {
+    const prompt = `You are an aptitude test coach. A candidate answered this question:
+Question: ${question}
+Correct Answer: ${correctAnswer}
+Candidate's Answer: ${userAnswer}
+Result: ${isCorrect ? 'CORRECT' : 'INCORRECT'}
+Explanation: ${explanation}
+
+Give a 1-2 sentence feedback:
+- If correct: praise their reasoning and add one tip to solve similar questions faster
+- If incorrect: explain WHY the correct answer is right in simple terms, and give a technique to avoid this mistake
+
+Also give 2-3 short tips as tags (e.g. "Check your arithmetic", "Use elimination method").
+
+Respond ONLY with this JSON:
+{"feedback": "...", "tips": ["tip1", "tip2"], "verdict": "Correct" or "Incorrect"}`;
+
+    const res=await fetch('/api/analyze-answer',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        question: question,
+        answer: userAnswer + ' (Correct: ' + correctAnswer + ')',
+        interview_type:'aptitude',
+        category: 'MCQ'
+      }),
+    });
+    const data=await res.json();
+
+    // For aptitude we use simplified feedback
+    const fb = isCorrect
+      ? '&#10003; Correct! ' + (explanation || 'Well done.')
+      : '&#10007; Incorrect. ' + (explanation || 'Review the concept and try again.');
+
+    document.getElementById('apt-feedback').innerHTML = '<strong>' + (isCorrect ? 'Correct!' : 'Incorrect') + '</strong> ' + (explanation || '');
+
+    const tags = document.getElementById('apt-tags');
+    tags.innerHTML = '';
+    if (isCorrect) {
+      tags.innerHTML += '<span class="analysis-tag good">&#10003; Got it right</span>';
+      if (data.ok && data.answer_quality) {
+        tags.innerHTML += '<span class="analysis-tag good">Score: '+data.overall_score+'%</span>';
+      }
+    } else {
+      tags.innerHTML += '<span class="analysis-tag bad">&#10007; Review this concept</span>';
+      tags.innerHTML += '<span class="analysis-tag bad">&#128161; Use elimination method</span>';
+    }
+
+    badge.textContent = isCorrect ? 'Correct' : 'Incorrect';
+    badge.className   = 'verdict-badge ' + (isCorrect ? 'excellent' : 'needswork');
+    loading.style.display='none'; results.style.display='block';
+  } catch(err) {
+    document.getElementById('apt-feedback').innerHTML =
+      '<strong>' + (isCorrect ? 'Correct!' : 'Incorrect.') + '</strong> ' + (explanation||'');
+    badge.textContent = isCorrect ? 'Correct' : 'Incorrect';
+    badge.className   = 'verdict-badge ' + (isCorrect ? 'excellent' : 'needswork');
+    loading.style.display='none'; results.style.display='block';
+  }
+}
+function animateNum(id,from,to,dur,sfx=''){const el=document.getElementById(id),s=performance.now();function u(n){const p=Math.min((n-s)/dur,1);el.textContent=Math.round(from+(to-from)*p)+sfx;if(p<1)requestAnimationFrame(u);}requestAnimationFrame(u);}
+</script>
+{% endblock %}
