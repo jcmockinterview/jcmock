@@ -78,8 +78,8 @@ OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL   = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")
 
 # ==================== EMAIL CONFIG ====================
-GMAIL_USER         = os.environ.get("GMAIL_USER",         "jc.mock.interview@gmail.com")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "rlpc mfjh rswh xvfw")
+GMAIL_USER         = os.environ.get("GMAIL_USER")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 
 # In-memory OTP store  {email: {otp, expiry, verified}}
 otp_storage: dict = {}
