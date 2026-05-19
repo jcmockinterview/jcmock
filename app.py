@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from flask_sqlalchemy import SQLAlchemy
 import os, json, requests, uuid, re, smtplib, random, io
 from functools import wraps
 from datetime import datetime, timedelta
@@ -9,53 +10,90 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from report_generator import report_generator
+import os
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "jobcooked-secret-key-change-in-prod")
 
+# ==================== DATABASE CONFIG ====================
+# PostgreSQL in production (set DATABASE_URL env var on Render/Railway)
+# SQLite locally (zero setup needed)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+if DATABASE_URL:
+    # Render gives postgres:// but SQLAlchemy needs postgresql://
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+else:
+    # Local SQLite fallback
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(
+        os.path.dirname(__file__), "jobcooked.db"
+    )
+
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(app)
+
+# ==================== USER MODEL ====================
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    email      = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    name       = db.Column(db.String(255), nullable=False)
+    password   = db.Column(db.String(512), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {"id": self.id, "email": self.email, "name": self.name}
+
+# Create tables on first run
+with app.app_context():
+    db.create_all()
+    print("✅ Database tables ready")
+
+# ==================== DB HELPER FUNCTIONS ====================
+# Same interface as the old load_users/save_users so all routes work unchanged
+
+def get_user_by_email(email: str) -> User | None:
+    return User.query.filter_by(email=email.lower().strip()).first()
+
+def create_user(name: str, email: str, hashed_password: str) -> User:
+    user = User(name=name, email=email.lower().strip(), password=hashed_password)
+    db.session.add(user)
+    db.session.commit()
+    return user
+
+def update_user_password(email: str, hashed_password: str):
+    user = get_user_by_email(email)
+    if user:
+        user.password = hashed_password
+        db.session.commit()
 
 # ==================== OPENROUTER CONFIG ====================
-# API key taken from your friend's working project
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
-
-# deepseek/deepseek-chat — same model your friend uses (free tier, excellent quality)
-OPENROUTER_MODEL   = "deepseek/deepseek-chat"
+OPENROUTER_MODEL   = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")
 
 # ==================== EMAIL CONFIG ====================
-# Use your Gmail address + an App Password (not your normal password)
-# Generate App Password: Google Account → Security → 2-Step → App Passwords
-GMAIL_USER         = os.environ.get("GMAIL_USER",     "jc.mock.interview@gmail.com")
+GMAIL_USER         = os.environ.get("GMAIL_USER",         "jc.mock.interview@gmail.com")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "rlpc mfjh rswh xvfw")
 
 # In-memory OTP store  {email: {otp, expiry, verified}}
 otp_storage: dict = {}
 
-# Report output folder
+# Report + upload folders
 REPORT_FOLDER = os.path.join(os.path.dirname(__file__), "reports")
-os.makedirs(REPORT_FOLDER, exist_ok=True)
-
-# ==================== FILE / DB CONFIG ====================
-UPLOAD_FOLDER      = os.path.join(os.path.dirname(__file__), "uploads")
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt"}
-DB_FILE            = os.path.join(os.path.dirname(__file__), "users.json")
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024   # 10 MB
 
+os.makedirs(REPORT_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# ==================== SIMPLE JSON DB ====================
-
-def load_users():
-    if not os.path.exists(DB_FILE):
-        return {}
-    with open(DB_FILE) as f:
-        return json.load(f)
-
-def save_users(users):
-    with open(DB_FILE, "w") as f:
-        json.dump(users, f, indent=2)
 
 # ==================== AUTH DECORATOR ====================
 
@@ -87,9 +125,8 @@ def login():
 @app.route("/home")
 @login_required
 def home():
-    users = load_users()
-    user  = users.get(session["user_email"], {})
-    return render_template("home.html", user_name=user.get("name", "User"))
+    user = get_user_by_email(session["user_email"])
+    return render_template("home.html", user_name=user.name if user else "User")
 
 @app.route("/resume-interview")
 @login_required
@@ -120,53 +157,45 @@ def logout():
 @app.route("/api/register", methods=["POST"])
 def api_register():
     data  = request.get_json()
-    name  = data.get("name", "").strip()
-    email = data.get("email", "").strip().lower()
+    name  = data.get("name",     "").strip()
+    email = data.get("email",    "").strip().lower()
     pwd   = data.get("password", "")
 
     if not name or not email or not pwd:
         return jsonify({"ok": False, "msg": "All fields are required."}), 400
     if len(pwd) < 8:
         return jsonify({"ok": False, "msg": "Password must be at least 8 characters."}), 400
-
-    users = load_users()
-    if email in users:
+    if get_user_by_email(email):
         return jsonify({"ok": False, "msg": "An account with this email already exists."}), 409
 
-    users[email] = {"name": name, "email": email, "password": generate_password_hash(pwd)}
-    save_users(users)
+    create_user(name, email, generate_password_hash(pwd))
     return jsonify({"ok": True, "msg": "Account created! Redirecting..."})
 
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
     data  = request.get_json()
-    email = data.get("email", "").strip().lower()
+    email = data.get("email",    "").strip().lower()
     pwd   = data.get("password", "")
 
-    users = load_users()
-    user  = users.get(email)
-    if not user or not check_password_hash(user["password"], pwd):
+    user = get_user_by_email(email)
+    if not user or not check_password_hash(user.password, pwd):
         return jsonify({"ok": False, "msg": "Invalid email or password."}), 401
 
-    session["user_email"] = email
-    session["user_name"]  = user["name"]
+    session["user_email"] = user.email
+    session["user_name"]  = user.name
     return jsonify({"ok": True, "redirect": url_for("home")})
 
 # ==================== OPENROUTER CORE ====================
 
 def call_openrouter(prompt: str, temperature: float = 0.5, max_tokens: int = 2000) -> str | None:
-    """
-    Exact same pattern as your friend's call_openrouter().
-    Returns raw text or None on failure.
-    """
     print(f"🌐 Calling OpenRouter (model: {OPENROUTER_MODEL})...")
     try:
         response = requests.post(
             OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer":  "http://localhost:5000",
+                "HTTP-Referer":  "https://jobcooked.app",
                 "X-Title":       "JobCooked",
                 "Content-Type":  "application/json",
             },
@@ -197,37 +226,23 @@ def call_openrouter(prompt: str, temperature: float = 0.5, max_tokens: int = 200
 
 
 def parse_numbered_questions(raw: str, expected: int) -> list | None:
-    """
-    Same parser your friend uses — extracts numbered lines like '1. Question text'.
-    Returns list of {id, question, category} or None if too few parsed.
-    """
     questions = []
     for line in raw.split("\n"):
         match = re.match(r"^\s*(\d+)\.\s+(.+)", line)
         if match:
             num  = int(match.group(1))
             text = match.group(2).strip()
-            # Strip bold markers (**text**)
             text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text).strip()
             if text and 1 <= num <= expected:
                 questions.append({"id": num, "question": text, "category": "General"})
-
     questions = sorted(questions, key=lambda x: x["id"])[:expected]
-
     if len(questions) < expected:
         print(f"   ❌ Only parsed {len(questions)}/{expected} questions.")
-        print(f"   Raw preview: {raw[:400]}")
         return None
-
     return questions
 
 
 def parse_mcq_questions(raw: str, expected: int) -> list | None:
-    """
-    Parse MCQ questions from numbered JSON-like blocks in the LLM output.
-    Falls back to JSON array parsing if the model returns clean JSON.
-    """
-    # Try direct JSON parse first
     try:
         clean = raw.replace("```json", "").replace("```", "").strip()
         s = clean.find("["); e = clean.rfind("]")
@@ -244,10 +259,9 @@ def parse_mcq_questions(raw: str, expected: int) -> list | None:
     except Exception:
         pass
 
-    # Fallback: regex-extract numbered questions + A/B/C/D options
-    questions  = []
-    blocks     = re.split(r"\n(?=\d+\.)", raw.strip())
-    keys       = ["A", "B", "C", "D"]
+    questions = []
+    blocks    = re.split(r"\n(?=\d+\.)", raw.strip())
+    keys      = ["A", "B", "C", "D"]
 
     for block in blocks:
         lines = [l.strip() for l in block.strip().split("\n") if l.strip()]
@@ -256,42 +270,28 @@ def parse_mcq_questions(raw: str, expected: int) -> list | None:
         q_match = re.match(r"^\s*(\d+)\.\s+(.+)", lines[0])
         if not q_match:
             continue
-
         q_num  = int(q_match.group(1))
         q_text = q_match.group(2).strip()
-        options = []
-        correct = 0
-        explanation = ""
-
+        options = []; correct = 0; explanation = ""
         for line in lines[1:]:
             opt_match = re.match(r"^[A-D][)\.]\s+(.+)", line)
-            if opt_match:
-                options.append(opt_match.group(1).strip())
+            if opt_match: options.append(opt_match.group(1).strip())
             ans_match = re.match(r"(?i)answer\s*[:\-]\s*([A-D])", line)
-            if ans_match:
-                correct = keys.index(ans_match.group(1).upper())
+            if ans_match: correct = keys.index(ans_match.group(1).upper())
             exp_match = re.match(r"(?i)explanation\s*[:\-]\s*(.+)", line)
-            if exp_match:
-                explanation = exp_match.group(1).strip()
-
+            if exp_match: explanation = exp_match.group(1).strip()
         if len(options) == 4 and 1 <= q_num <= expected:
-            questions.append({
-                "id":          q_num,
-                "question":    q_text,
-                "options":     options,
-                "correct":     correct,
-                "explanation": explanation or "See correct answer above.",
-                "category":    "General",
-            })
+            questions.append({"id": q_num, "question": q_text, "options": options,
+                              "correct": correct, "explanation": explanation or "See correct answer above.",
+                              "category": "General"})
 
     questions = sorted(questions, key=lambda x: x["id"])[:expected]
     if len(questions) < expected:
         print(f"   ❌ Only parsed {len(questions)}/{expected} MCQ questions.")
         return None
-
     return questions
 
-# ==================== TEST KEY ENDPOINT ====================
+# ==================== TEST KEY ====================
 
 @app.route("/api/test-key", methods=["GET"])
 @login_required
@@ -299,35 +299,22 @@ def api_test_key():
     try:
         response = requests.post(
             OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer":  "http://localhost:5000",
-                "X-Title":       "JobCooked",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":      OPENROUTER_MODEL,
-                "messages":   [{"role": "user", "content": "Reply with one word: ready"}],
-                "max_tokens": 5,
-            },
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                     "HTTP-Referer": "https://jobcooked.app", "X-Title": "JobCooked",
+                     "Content-Type": "application/json"},
+            json={"model": OPENROUTER_MODEL,
+                  "messages": [{"role": "user", "content": "Reply with one word: ready"}],
+                  "max_tokens": 5},
             timeout=20,
         )
         if response.status_code == 200:
-            return jsonify({"ok": True,  "msg": f"✅ API key is working! Model: {OPENROUTER_MODEL}", "model": OPENROUTER_MODEL})
-        if response.status_code == 401:
-            return jsonify({"ok": False, "msg": "401 — API key invalid or expired.", "model": OPENROUTER_MODEL})
-        if response.status_code == 402:
-            return jsonify({"ok": False, "msg": "402 — No credits. Add credits or switch to a free model.", "model": OPENROUTER_MODEL})
-        if response.status_code == 404:
-            return jsonify({"ok": False, "msg": f"404 — Model '{OPENROUTER_MODEL}' not found.", "model": OPENROUTER_MODEL})
-        return jsonify({"ok": False, "msg": f"Error {response.status_code}: {response.text[:200]}", "model": OPENROUTER_MODEL})
-    except requests.Timeout:
-        return jsonify({"ok": False, "msg": "Timeout — OpenRouter is slow, try again.", "model": OPENROUTER_MODEL})
+            return jsonify({"ok": True, "msg": f"✅ API key working! Model: {OPENROUTER_MODEL}", "model": OPENROUTER_MODEL})
+        codes = {401: "401 — API key invalid.", 402: "402 — No credits.", 404: f"404 — Model not found."}
+        return jsonify({"ok": False, "msg": codes.get(response.status_code, f"Error {response.status_code}"), "model": OPENROUTER_MODEL})
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e), "model": OPENROUTER_MODEL})
 
 # ==================== RESUME INTERVIEW ====================
-# Prompt structure adapted from your friend's generate_questions_from_resume()
 
 @app.route("/api/resume/generate", methods=["POST"])
 @login_required
@@ -336,7 +323,6 @@ def api_resume_generate():
     q_count        = int(request.form.get("q_count",    10))
     interview_type = request.form.get("interview_type", "mixed")
 
-    # ── Extract resume text ──────────────────────────────────────
     resume_text = ""
     if "resume" in request.files:
         f = request.files["resume"]
@@ -355,8 +341,7 @@ def api_resume_generate():
                         reader = PdfReader(path)
                         for page in reader.pages:
                             t = page.extract_text()
-                            if t:
-                                resume_text += t + "\n"
+                            if t: resume_text += t + "\n"
                         resume_text = resume_text[:20000]
                     except ImportError:
                         try:
@@ -371,38 +356,32 @@ def api_resume_generate():
                     except ImportError:
                         resume_text = f"[Word document uploaded: {filename}]"
             finally:
-                if os.path.exists(path):
-                    os.remove(path)
+                if os.path.exists(path): os.remove(path)
 
     level_map = {
-        "fresher": "Fresher / Entry-Level (0–1 year of experience)",
-        "mid":     "Mid-Level Professional (2–4 years of experience)",
+        "fresher": "Fresher / Entry-Level (0-1 year of experience)",
+        "mid":     "Mid-Level Professional (2-4 years of experience)",
         "senior":  "Senior Professional (5+ years of experience)",
     }
     focus_map = {
-        "technical":  "Technical — assess coding, tools, architecture, and domain knowledge",
-        "behavioral": "Behavioral — assess soft skills, teamwork, and ownership via STAR method",
-        "mixed":      "Mixed — equal balance of technical and behavioral questions",
+        "technical":  "Technical - assess coding, tools, architecture, and domain knowledge",
+        "behavioral": "Behavioral - assess soft skills, teamwork, and ownership via STAR method",
+        "mixed":      "Mixed - equal balance of technical and behavioral questions",
     }
     level_desc = level_map.get(difficulty, level_map["mid"])
     focus_desc = focus_map.get(interview_type, focus_map["mixed"])
 
-    # ── Decide section counts based on total ──────────────────────
     if interview_type == "technical":
         tech_n, proj_n, hr_n, scen_n = q_count - 3, 2, 1, 0
     elif interview_type == "behavioral":
         tech_n, proj_n, hr_n, scen_n = 0, 2, q_count - 4, 2
-    else:  # mixed
-        tech_n = max(1, q_count // 3)
-        proj_n = max(1, q_count // 4)
-        hr_n   = max(1, q_count // 4)
-        scen_n = q_count - tech_n - proj_n - hr_n
+    else:
+        tech_n = max(1, q_count // 3); proj_n = max(1, q_count // 4)
+        hr_n   = max(1, q_count // 4); scen_n = q_count - tech_n - proj_n - hr_n
 
-    # Clamp negatives
     tech_n = max(tech_n, 0); proj_n = max(proj_n, 0)
     hr_n   = max(hr_n,   1); scen_n = max(scen_n, 0)
 
-    # ── Prompt (same structured format as friend's code) ─────────
     if resume_text.strip():
         prompt = f"""You are an expert interview question generator.
 
@@ -421,13 +400,13 @@ Based on this resume, generate EXACTLY {q_count} interview questions in the foll
 {chr(10).join(f"{tech_n+proj_n+hr_n+i+1}. [Question]" for i in range(scen_n))}
 
 STRICT RULES:
-- Every question MUST be directly tied to something visible in this resume (a named technology, project, company, skill, or achievement)
+- Every question MUST be directly tied to something visible in this resume
 - Do NOT ask generic questions a stranger to this resume could answer
 - Probe deeply: ask WHY, HOW, what were the outcomes, what would you do differently
 - Candidate level: {level_desc}
 - Interview focus: {focus_desc}
-- Number them 1–{q_count} exactly as shown above
-- No bold markers, no extra text — just numbered questions
+- Number them 1-{q_count} exactly as shown above
+- No bold markers, no extra text - just numbered questions
 
 Resume:
 {resume_text}
@@ -453,33 +432,27 @@ STRICT RULES:
 - Questions should uncover the candidate's background, experience, and depth of expertise
 - Candidate level: {level_desc}
 - Interview focus: {focus_desc}
-- Number them 1–{q_count} exactly as shown
-- Open-ended questions only — no yes/no answers
+- Number them 1-{q_count} exactly as shown
+- Open-ended questions only - no yes/no answers
 """
 
-    print(f"\n{'='*60}\n🎬 RESUME INTERVIEW — generating {q_count} questions\n{'='*60}")
+    print(f"\n{'='*60}\n🎬 RESUME INTERVIEW - generating {q_count} questions\n{'='*60}")
     raw = call_openrouter(prompt, temperature=0.3, max_tokens=2500)
-
     if not raw:
-        return jsonify({"ok": False, "msg": "OpenRouter returned no response. Check your API key and internet connection."}), 503
+        return jsonify({"ok": False, "msg": "OpenRouter returned no response."}), 503
 
     questions = parse_numbered_questions(raw, q_count)
     if not questions:
-        return jsonify({"ok": False, "msg": f"Parsed fewer than {q_count} questions from the AI response. Try again."}), 500
+        return jsonify({"ok": False, "msg": f"Parsed fewer than {q_count} questions. Try again."}), 500
 
-    # Tag categories by section
     for q in questions:
         n = q["id"]
-        if n <= tech_n:
-            q["category"] = "Technical"
-        elif n <= tech_n + proj_n:
-            q["category"] = "Project-Based"
-        elif n <= tech_n + proj_n + hr_n:
-            q["category"] = "HR"
-        else:
-            q["category"] = "Scenario-Based"
+        if n <= tech_n:                           q["category"] = "Technical"
+        elif n <= tech_n + proj_n:                q["category"] = "Project-Based"
+        elif n <= tech_n + proj_n + hr_n:         q["category"] = "HR"
+        else:                                     q["category"] = "Scenario-Based"
 
-    print(f"✅ {len(questions)} resume questions generated successfully")
+    print(f"✅ {len(questions)} resume questions generated")
     return jsonify({"ok": True, "questions": questions})
 
 # ==================== ROLE-BASED INTERVIEW ====================
@@ -494,30 +467,25 @@ def api_role_generate():
     interview_type = data.get("interview_type", "technical")
 
     level_map = {
-        "fresher": "Fresher / Entry-Level (0–1 year) — test conceptual understanding and learning ability",
-        "mid":     "Mid-Level (2–4 years) — test applied knowledge, real-world problem solving, and ownership",
-        "senior":  "Senior (5+ years) — test architectural thinking, leadership, and advanced expertise",
+        "fresher": "Fresher / Entry-Level (0-1 year) - test conceptual understanding and learning ability",
+        "mid":     "Mid-Level (2-4 years) - test applied knowledge, real-world problem solving, and ownership",
+        "senior":  "Senior (5+ years) - test architectural thinking, leadership, and advanced expertise",
     }
     focus_map = {
-        "technical":  "Technical — role-specific tools, frameworks, design patterns, and architecture decisions",
-        "behavioral": "Behavioral — leadership, conflict resolution, ownership, collaboration, STAR-method situations",
-        "mixed":      "Mixed — 50% technical role-specific questions, 50% behavioral/situational questions",
+        "technical":  "Technical - role-specific tools, frameworks, design patterns, and architecture decisions",
+        "behavioral": "Behavioral - leadership, conflict resolution, ownership, collaboration, STAR-method situations",
+        "mixed":      "Mixed - 50% technical role-specific questions, 50% behavioral/situational questions",
     }
     level_desc = level_map.get(difficulty, level_map["mid"])
     focus_desc = focus_map.get(interview_type, focus_map["mixed"])
 
-    # Section counts
     if interview_type == "technical":
         tech_n, behav_n, design_n, career_n = max(1, q_count - 3), 1, max(1, q_count // 4), 1
     elif interview_type == "behavioral":
         tech_n, behav_n, design_n, career_n = 1, max(1, q_count - 3), 1, 1
     else:
-        tech_n   = max(1, q_count // 3)
-        behav_n  = max(1, q_count // 3)
-        design_n = max(1, q_count // 6)
-        career_n = q_count - tech_n - behav_n - design_n
-
-    career_n = max(career_n, 0)
+        tech_n   = max(1, q_count // 3); behav_n  = max(1, q_count // 3)
+        design_n = max(1, q_count // 6); career_n = max(0, q_count - tech_n - behav_n - design_n)
 
     prompt = f"""You are a principal engineer and elite interviewer at a FAANG-level company who has personally hired dozens of {role}s.
 
@@ -536,39 +504,33 @@ Based on the role "{role}", generate EXACTLY {q_count} interview questions in th
 {chr(10).join(f"{tech_n+behav_n+design_n+i+1}. [Question]" for i in range(career_n))}
 
 STRICT RULES:
-- Every question MUST be specific to a {role} — not generic for any software job
-- Technical questions: ask HOW things work under the hood, WHEN to choose X over Y, trade-offs, not definitions
-- Behavioral questions: frame real scenarios a {role} actually faces on the job
-- System design: ask about scalability, architecture, and real-world implementation challenges
+- Every question MUST be specific to a {role} - not generic for any software job
+- Technical questions: ask HOW things work, WHEN to choose X over Y, trade-offs, not definitions
+- Behavioral: frame real scenarios a {role} actually faces on the job
+- System design: scalability, architecture, real-world implementation challenges
 - Candidate level: {level_desc}
 - Interview focus: {focus_desc}
-- Number them 1–{q_count} exactly as shown
-- No bold markers, no extra text — just numbered questions
+- Number them 1-{q_count} exactly as shown
+- No bold markers, no extra text - just numbered questions
 """
 
-    print(f"\n{'='*60}\n💼 ROLE INTERVIEW ({role}) — generating {q_count} questions\n{'='*60}")
+    print(f"\n{'='*60}\n💼 ROLE INTERVIEW ({role}) - generating {q_count} questions\n{'='*60}")
     raw = call_openrouter(prompt, temperature=0.3, max_tokens=2500)
-
     if not raw:
-        return jsonify({"ok": False, "msg": "OpenRouter returned no response. Check your API key and internet connection."}), 503
+        return jsonify({"ok": False, "msg": "OpenRouter returned no response."}), 503
 
     questions = parse_numbered_questions(raw, q_count)
     if not questions:
         return jsonify({"ok": False, "msg": f"Parsed fewer than {q_count} questions. Try again."}), 500
 
-    # Tag categories
     for q in questions:
         n = q["id"]
-        if n <= tech_n:
-            q["category"] = "Technical"
-        elif n <= tech_n + behav_n:
-            q["category"] = "Behavioral"
-        elif n <= tech_n + behav_n + design_n:
-            q["category"] = "System Design"
-        else:
-            q["category"] = "Career Growth"
+        if n <= tech_n:                            q["category"] = "Technical"
+        elif n <= tech_n + behav_n:                q["category"] = "Behavioral"
+        elif n <= tech_n + behav_n + design_n:     q["category"] = "System Design"
+        else:                                      q["category"] = "Career Growth"
 
-    print(f"✅ {len(questions)} role questions generated successfully")
+    print(f"✅ {len(questions)} role questions generated")
     return jsonify({"ok": True, "questions": questions})
 
 # ==================== APTITUDE ROUND ====================
@@ -590,11 +552,10 @@ def api_aptitude_generate():
         "coding":  "basic programming concepts (time & space complexity, output prediction for code snippets, arrays, linked lists, sorting algorithms, recursion, OOP, SQL basics)",
     }
     diff_map = {
-        "easy":   "EASY — single or two-step reasoning, small clean numbers, solvable in under 45 seconds, no tricks",
-        "medium": "MEDIUM — 3–5 step reasoning, moderate numbers, some plausible distractors, typical TCS/Infosys placement level, solvable in under 60 seconds",
-        "hard":   "HARD — 5+ step multi-concept reasoning, complex logic chains, CAT/ELITMUS level difficulty, solvable in under 90 seconds only by well-prepared candidates",
+        "easy":   "EASY - single or two-step reasoning, small clean numbers, solvable in under 45 seconds, no tricks",
+        "medium": "MEDIUM - 3-5 step reasoning, moderate numbers, some plausible distractors, typical TCS/Infosys placement level, solvable in under 60 seconds",
+        "hard":   "HARD - 5+ step multi-concept reasoning, complex logic chains, CAT/ELITMUS level difficulty, solvable in under 90 seconds only by well-prepared candidates",
     }
-
     topic_desc = cat_map.get(category, cat_map["all"])
     diff_desc  = diff_map.get(level,   diff_map["medium"])
 
@@ -616,27 +577,25 @@ Answer: {{correct letter A/B/C/D}}
 Explanation: {{step-by-step working}}
 
 STRICT RULES:
-- Every question must be fully self-contained (no external images or tables — embed any data inline)
+- Every question must be fully self-contained (embed any data inline)
 - Exactly 4 options per question labelled A) B) C) D)
 - Exactly one correct answer per question
-- The correct answer letter must VARY — do NOT always put the answer as A or B
-- The explanation must show complete step-by-step working, not just restate the answer
+- The correct answer letter must VARY - do NOT always put the answer as A or B
+- The explanation must show complete step-by-step working
 - All arithmetic and logic must be mathematically verified and correct
-- Questions must be genuinely distinct — no two questions test the same concept the same way
-- Output ONLY the questions in the format above — no preamble, no summary, no extra text
+- Questions must be genuinely distinct
+- Output ONLY the questions in the format above - no preamble, no summary, no extra text
 """
 
-    print(f"\n{'='*60}\n🧩 APTITUDE ({level.upper()} / {category}) — generating {q_count} MCQs\n{'='*60}")
+    print(f"\n{'='*60}\n🧩 APTITUDE ({level.upper()} / {category}) - generating {q_count} MCQs\n{'='*60}")
     raw = call_openrouter(prompt, temperature=0.4, max_tokens=3500)
-
     if not raw:
-        return jsonify({"ok": False, "msg": "OpenRouter returned no response. Check your API key and internet connection."}), 503
+        return jsonify({"ok": False, "msg": "OpenRouter returned no response."}), 503
 
     questions = parse_mcq_questions(raw, q_count)
     if not questions:
         return jsonify({"ok": False, "msg": f"Parsed fewer than {q_count} MCQ questions. Try again."}), 500
 
-    # Tag sub-topic category from explanation/question content
     subcat_map = {
         "logical": "Logical Reasoning", "quant": "Quantitative",
         "verbal":  "Verbal Ability",    "data":  "Data Interpretation",
@@ -646,19 +605,13 @@ STRICT RULES:
     for q in questions:
         q.setdefault("category", default_cat)
 
-    print(f"✅ {len(questions)} aptitude MCQs generated successfully")
+    print(f"✅ {len(questions)} aptitude MCQs generated")
     return jsonify({"ok": True, "questions": questions})
-
 
 # ==================== EMAIL HELPER ====================
 
 def send_email(to_email: str, subject: str, html_body: str,
                attachment_path: str = None, attachment_name: str = None) -> bool:
-    """
-    Send email via Gmail SMTP.
-    Tries port 587 (STARTTLS) first, falls back to port 465 (SSL).
-    Optionally attaches a file (used for sending PDF reports).
-    """
     def build_msg():
         msg = MIMEMultipart()
         msg["From"]    = GMAIL_USER
@@ -670,145 +623,99 @@ def send_email(to_email: str, subject: str, html_body: str,
                 part = MIMEBase("application", "octet-stream")
                 part.set_payload(f.read())
             encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition",
-                f'attachment; filename="{attachment_name or os.path.basename(attachment_path)}"',
-            )
+            part.add_header("Content-Disposition",
+                f'attachment; filename="{attachment_name or os.path.basename(attachment_path)}"')
             msg.attach(part)
         return msg
 
-    # Port 587 — STARTTLS
     try:
         print(f"📧 Sending email to {to_email} via port 587...")
         server = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
         server.ehlo(); server.starttls(); server.ehlo()
         server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-        server.send_message(build_msg())
-        server.quit()
-        print(f"✅ Email sent to {to_email}")
-        return True
+        server.send_message(build_msg()); server.quit()
+        print(f"✅ Email sent to {to_email}"); return True
     except Exception as e1:
         print(f"⚠ Port 587 failed: {e1}")
 
-    # Port 465 — SSL fallback
     try:
         import ssl
-        print(f"📧 Retrying via port 465 (SSL)...")
         ctx = ssl.create_default_context()
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx, timeout=15) as s:
             s.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             s.send_message(build_msg())
-        print(f"✅ Email sent via port 465")
-        return True
+        print(f"✅ Email sent via port 465"); return True
     except Exception as e2:
         print(f"⚠ Port 465 failed: {e2}")
 
-    print(f"❌ Email delivery failed for {to_email}")
-    return False
+    print(f"❌ Email delivery failed for {to_email}"); return False
 
 
 def otp_email_html(otp: str, purpose: str = "verification") -> str:
-    """Build the HTML body for OTP emails."""
     label = "Password Reset" if purpose == "reset" else "Email Verification"
-    return f"""
-    <html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:30px;">
-      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+    return f"""<html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:30px;">
+      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
         <div style="background:#f97316;padding:28px;text-align:center;">
-          <h2 style="color:#fff;margin:0;font-size:22px;">🍳 JobCooked</h2>
+          <h2 style="color:#fff;margin:0;font-size:22px;">JobCooked</h2>
           <p style="color:#ffe0c8;margin:6px 0 0;font-size:13px;">AI Interview Prep Platform</p>
         </div>
         <div style="padding:32px;">
           <h3 style="color:#1e1e2e;margin-top:0;">{label}</h3>
-          <p style="color:#444;line-height:1.6;">
-            Your one-time verification code is:
-          </p>
-          <div style="background:#fff7f0;border:2px solid #f97316;border-radius:10px;
-                      text-align:center;padding:20px;margin:20px 0;">
+          <p style="color:#444;line-height:1.6;">Your one-time verification code is:</p>
+          <div style="background:#fff7f0;border:2px solid #f97316;border-radius:10px;text-align:center;padding:20px;margin:20px 0;">
             <span style="font-size:38px;font-weight:bold;color:#f97316;letter-spacing:8px;">{otp}</span>
           </div>
           <p style="color:#888;font-size:13px;">This code expires in <b>10 minutes</b>.</p>
-          <p style="color:#aaa;font-size:12px;">If you did not request this, please ignore this email.</p>
-        </div>
-        <div style="background:#f8f8fc;padding:16px;text-align:center;border-top:1px solid #eee;">
-          <p style="color:#aaa;font-size:11px;margin:0;">© {datetime.now().year} JobCooked — AI Interview Prep</p>
         </div>
       </div>
     </body></html>"""
 
 
 def report_email_html(candidate_name: str, interview_type: str, score: float) -> str:
-    """Build the HTML body for report delivery emails."""
     score_color = "#22c55e" if score >= 70 else "#fbbf24" if score >= 40 else "#ef4444"
     type_label  = {"resume":"Resume Interview","role":"Role-Based Interview",
                    "aptitude":"Aptitude Test"}.get(interview_type.lower(), interview_type)
-    return f"""
-    <html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:30px;">
-      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+    return f"""<html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:30px;">
+      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
         <div style="background:#f97316;padding:28px;text-align:center;">
-          <h2 style="color:#fff;margin:0;font-size:22px;">🍳 JobCooked</h2>
+          <h2 style="color:#fff;margin:0;font-size:22px;">JobCooked</h2>
           <p style="color:#ffe0c8;margin:6px 0 0;font-size:13px;">Your Interview Report is Ready!</p>
         </div>
         <div style="padding:32px;">
           <h3 style="color:#1e1e2e;margin-top:0;">Hi {candidate_name},</h3>
-          <p style="color:#444;line-height:1.6;">
-            Congratulations on completing your <b>{type_label}</b>! 🎉<br>
-            Your detailed performance report is attached to this email.
-          </p>
+          <p style="color:#444;line-height:1.6;">Congratulations on completing your <b>{type_label}</b>!</p>
           <div style="background:#fff7f0;border-radius:10px;padding:20px;margin:20px 0;text-align:center;">
             <p style="margin:0;color:#888;font-size:13px;">Overall Score</p>
             <p style="margin:6px 0 0;font-size:42px;font-weight:bold;color:{score_color};">{score:.1f}%</p>
           </div>
-          <p style="color:#444;line-height:1.6;">
-            The PDF report includes your full question-by-question breakdown, feedback, and
-            personalised recommendations to help you improve.
-          </p>
-          <p style="color:#888;font-size:13px;">Keep practising — every interview makes you better! 💪</p>
-        </div>
-        <div style="background:#f8f8fc;padding:16px;text-align:center;border-top:1px solid #eee;">
-          <p style="color:#aaa;font-size:11px;margin:0;">© {datetime.now().year} JobCooked — AI Interview Prep</p>
+          <p style="color:#888;font-size:13px;">Keep practising - every interview makes you better!</p>
         </div>
       </div>
     </body></html>"""
 
-
-# ==================== OTP ROUTES (Forgot Password) ====================
+# ==================== OTP ROUTES ====================
 
 @app.route("/api/send-otp", methods=["POST"])
 def api_send_otp():
-    """Send a 6-digit OTP to the given email for password reset."""
     data  = request.get_json()
     email = data.get("email", "").strip().lower()
     if not email:
         return jsonify({"ok": False, "msg": "Email is required."}), 400
-
-    users = load_users()
-    if email not in users:
+    if not get_user_by_email(email):
         return jsonify({"ok": False, "msg": "No account found with this email."}), 404
 
     otp = str(random.randint(100000, 999999))
-    otp_storage[email] = {
-        "otp":      otp,
-        "expiry":   datetime.now() + timedelta(minutes=10),
-        "verified": False,
-    }
+    otp_storage[email] = {"otp": otp, "expiry": datetime.now() + timedelta(minutes=10), "verified": False}
 
-    sent = send_email(
-        to_email  = email,
-        subject   = "JobCooked — Password Reset OTP",
-        html_body = otp_email_html(otp, purpose="reset"),
-    )
-
-    if sent:
-        return jsonify({"ok": True, "msg": f"OTP sent to {email}"})
-    else:
-        # Dev fallback — print to terminal
-        print(f"⚠ DEV MODE — OTP for {email}: {otp}")
-        return jsonify({"ok": True, "msg": f"OTP sent to {email} (check server terminal if email fails)"})
+    sent = send_email(to_email=email, subject="JobCooked - Password Reset OTP",
+                      html_body=otp_email_html(otp, purpose="reset"))
+    if not sent:
+        print(f"⚠ DEV MODE OTP for {email}: {otp}")
+    return jsonify({"ok": True, "msg": f"OTP sent to {email}"})
 
 
 @app.route("/api/verify-otp", methods=["POST"])
 def api_verify_otp():
-    """Verify the OTP submitted by the user."""
     data  = request.get_json()
     email = data.get("email", "").strip().lower()
     otp   = data.get("otp",   "").strip()
@@ -831,10 +738,9 @@ def api_verify_otp():
 
 @app.route("/api/reset-password", methods=["POST"])
 def api_reset_password():
-    """Reset password after OTP is verified."""
-    data     = request.get_json()
-    email    = data.get("email",        "").strip().lower()
-    new_pwd  = data.get("new_password", "").strip()
+    data    = request.get_json()
+    email   = data.get("email",        "").strip().lower()
+    new_pwd = data.get("new_password", "").strip()
 
     if not email or not new_pwd:
         return jsonify({"ok": False, "msg": "Email and new password are required."}), 400
@@ -842,157 +748,87 @@ def api_reset_password():
         return jsonify({"ok": False, "msg": "Password must be at least 8 characters."}), 400
     if email not in otp_storage or not otp_storage[email].get("verified"):
         return jsonify({"ok": False, "msg": "Please verify your OTP first."}), 400
-
-    users = load_users()
-    if email not in users:
+    if not get_user_by_email(email):
         return jsonify({"ok": False, "msg": "Account not found."}), 404
 
-    users[email]["password"] = generate_password_hash(new_pwd)
-    save_users(users)
+    update_user_password(email, generate_password_hash(new_pwd))
     del otp_storage[email]
-
     print(f"✅ Password reset for {email}")
     return jsonify({"ok": True, "msg": "Password reset successfully. You can now log in."})
-
 
 # ==================== REPORT GENERATION + EMAIL ====================
 
 @app.route("/api/report/generate", methods=["POST"])
 @login_required
 def api_generate_report():
-    """
-    Generate a PDF report from submitted interview data and
-    email it to the logged-in user.
-
-    Expected JSON body:
-    {
-      "interview_type": "resume" | "role" | "aptitude",
-      "overall_score":  float,
-      "speech_score":   float  (optional),
-      "content_score":  float  (optional),
-      "role":           str    (optional, for role interview),
-      "level":          str    (optional),
-      "category":       str    (optional, for aptitude),
-      "questions": [
-        {
-          "question":  str,
-          "answer":    str,
-          "score":     float,
-          "category":  str,
-          "feedback":  str   (optional)
-        }, ...
-      ]
-    }
-    """
-    data           = request.get_json()
-    users          = load_users()
-    user           = users.get(session["user_email"], {})
-    candidate_name = user.get("name",  "Candidate")
-    candidate_email= session["user_email"]
+    data  = request.get_json()
+    user  = get_user_by_email(session["user_email"])
+    candidate_name  = user.name  if user else "Candidate"
+    candidate_email = user.email if user else session["user_email"]
 
     interview_type = data.get("interview_type", "interview")
-    overall_score  = float(data.get("overall_score",  0))
-    speech_score   = data.get("speech_score")
-    content_score  = data.get("content_score")
+    overall_score  = float(data.get("overall_score", 0))
     questions      = data.get("questions", [])
 
     if not questions:
         return jsonify({"ok": False, "msg": "No questions provided for report."}), 400
 
-    # ── Build report data dict ────────────────────────────────────
     report_data = {
-        "candidate_name":   candidate_name,
-        "candidate_email":  candidate_email,
-        "interview_type":   interview_type,
-        "overall_score":    overall_score,
-        "date":             datetime.now().strftime("%d %B %Y, %I:%M %p"),
-        "questions":        questions,
+        "candidate_name":  candidate_name,
+        "candidate_email": candidate_email,
+        "interview_type":  interview_type,
+        "overall_score":   overall_score,
+        "date":            datetime.now().strftime("%d %B %Y, %I:%M %p"),
+        "questions":       questions,
     }
-    if speech_score  is not None: report_data["speech_score"]  = float(speech_score)
-    if content_score is not None: report_data["content_score"] = float(content_score)
-    if data.get("role"):          report_data["role"]          = data["role"]
-    if data.get("level"):         report_data["level"]         = data["level"]
-    if data.get("category"):      report_data["category"]      = data["category"]
+    for key in ("speech_score", "content_score", "role", "level", "category"):
+        if data.get(key) is not None:
+            report_data[key] = float(data[key]) if key.endswith("_score") else data[key]
 
-    # ── Generate PDF ──────────────────────────────────────────────
-    # Clean candidate name for filename (remove spaces/special chars)
-    safe_name   = re.sub(r'[^a-zA-Z0-9]', '_', candidate_name).strip('_')
-    type_label  = {"resume": "Resume", "role": "Role_Interview", "aptitude": "Aptitude"}.get(interview_type, interview_type.capitalize())
-    pdf_name    = f"JobCooked_{type_label}_Report_{safe_name}.pdf"
-    pdf_path    = os.path.join(REPORT_FOLDER, pdf_name)
+    safe_name  = re.sub(r'[^a-zA-Z0-9]', '_', candidate_name).strip('_')
+    type_label = {"resume": "Resume", "role": "Role_Interview", "aptitude": "Aptitude"}.get(interview_type, interview_type.capitalize())
+    pdf_name   = f"JobCooked_{type_label}_Report_{safe_name}.pdf"
+    pdf_path   = os.path.join(REPORT_FOLDER, pdf_name)
 
-    result = report_generator.generate_report(report_data, pdf_path)
-    if not result:
-        return jsonify({"ok": False, "msg": "PDF generation failed. Check server logs."}), 500
+    if not report_generator.generate_report(report_data, pdf_path):
+        return jsonify({"ok": False, "msg": "PDF generation failed."}), 500
 
-    # ── Email the PDF ─────────────────────────────────────────────
     sent = send_email(
         to_email        = candidate_email,
-        subject         = f"JobCooked — Your {interview_type.capitalize()} Interview Report",
+        subject         = f"JobCooked - Your {interview_type.capitalize()} Interview Report",
         html_body       = report_email_html(candidate_name, interview_type, overall_score),
         attachment_path = pdf_path,
         attachment_name = pdf_name,
     )
-
-    if sent:
-        msg = f"Report generated and sent to {candidate_email} 📧"
-    else:
-        msg = "Report generated but email delivery failed. Check GMAIL_USER and GMAIL_APP_PASSWORD in app.py."
-
-    return jsonify({
-        "ok":       True,
-        "msg":      msg,
-        "emailed":  sent,
-        "filename": pdf_name,
-    })
-
+    msg = f"Report sent to {candidate_email}" if sent else "Report generated but email failed. Check GMAIL config."
+    return jsonify({"ok": True, "msg": msg, "emailed": sent, "filename": pdf_name})
 
 # ==================== ANSWER ANALYSIS ====================
 
 @app.route("/api/analyze-answer", methods=["POST"])
 @login_required
 def api_analyze_answer():
-    """
-    Analyze a candidate's spoken answer on two dimensions:
-    1. Speaking Quality  — clarity, pace, filler words, confidence, structure
-    2. Answer Quality    — relevance, depth, accuracy, use of examples
-
-    Returns per-dimension scores + specific actionable feedback.
-    """
-    data            = request.get_json()
-    question        = data.get("question", "").strip()
-    answer          = data.get("answer",   "").strip()
-    interview_type  = data.get("interview_type", "resume")
-    category        = data.get("category", "General")
+    data           = request.get_json()
+    question       = data.get("question", "").strip()
+    answer         = data.get("answer",   "").strip()
+    interview_type = data.get("interview_type", "resume")
+    category       = data.get("category", "General")
 
     if not answer or len(answer.strip()) < 5:
-        return jsonify({
-            "ok": True,
-            "speaking": {
-                "score": 0, "clarity": 0, "pace": 0,
-                "confidence": 0, "structure": 0,
-                "feedback": "No answer was given. Try to speak your answer clearly.",
-                "filler_words": [], "word_count": 0
-            },
-            "answer_quality": {
-                "score": 0, "relevance": 0, "depth": 0,
-                "accuracy": 0, "examples": 0,
-                "feedback": "No answer provided. Address the question directly with specific examples.",
-                "strengths": [], "improvements": ["Give a complete answer", "Use the STAR method"]
-            },
-            "overall_score": 0,
-            "verdict": "No Answer"
-        })
+        return jsonify({"ok": True,
+            "speaking":       {"score":0,"clarity":0,"pace":0,"confidence":0,"structure":0,
+                               "feedback":"No answer was given.","filler_words":[],"word_count":0},
+            "answer_quality": {"score":0,"relevance":0,"depth":0,"accuracy":0,"examples":0,
+                               "feedback":"No answer provided.","strengths":[],"improvements":["Give a complete answer","Use the STAR method"]},
+            "overall_score":0, "verdict":"No Answer"})
 
-    # ── Basic text metrics (instant, no API needed) ───────────────
-    words        = answer.split()
-    word_count   = len(words)
-    sentences    = [s.strip() for s in re.split(r'[.!?]', answer) if s.strip()]
+    words          = answer.split()
+    word_count     = len(words)
+    sentences      = [s.strip() for s in re.split(r'[.!?]', answer) if s.strip()]
     sentence_count = max(len(sentences), 1)
-    avg_wps      = word_count / sentence_count
+    avg_wps        = word_count / sentence_count
 
-    FILLER_WORDS = ["um","uh","like","you know","basically","actually",
-                    "literally","honestly","kind of","sort of","right","okay so"]
+    FILLER_WORDS  = ["um","uh","like","you know","basically","actually","literally","honestly","kind of","sort of","right","okay so"]
     found_fillers = [fw for fw in FILLER_WORDS if fw in answer.lower()]
     filler_count  = sum(answer.lower().count(fw) for fw in FILLER_WORDS)
 
@@ -1005,43 +841,32 @@ QUESTION CATEGORY: {category}
 QUESTION: {question}
 CANDIDATE'S ANSWER: {answer}
 
-WORD COUNT: {word_count} words
-SENTENCES: {sentence_count}
-AVG WORDS/SENTENCE: {avg_wps:.1f}
+WORD COUNT: {word_count} words | SENTENCES: {sentence_count} | AVG WORDS/SENTENCE: {avg_wps:.1f}
 FILLER WORDS DETECTED: {', '.join(found_fillers) if found_fillers else 'None'}
 
 === DIMENSION 1: SPEAKING QUALITY ===
-Evaluate HOW they spoke (communication style, not content):
 - Clarity (0-100): Are sentences clear, well-formed, and easy to follow?
-- Pace (0-100): Is the length appropriate? Too short (<20 words) = 30, ideal (40-120 words) = 85-95, too long (>200 words) = 60
-- Confidence (0-100): Does the language sound confident? Penalize heavily for filler words, hedging ("I think maybe", "I'm not sure but")
+- Pace (0-100): Is the length appropriate? Too short (<20 words)=30, ideal (40-120 words)=85-95, too long (>200 words)=60
+- Confidence (0-100): Does the language sound confident? Penalize heavily for filler words and hedging
 - Structure (0-100): Is the answer organized logically with a beginning, middle, end?
 
 === DIMENSION 2: ANSWER QUALITY ===
-Evaluate WHAT they said (content, not style):
 - Relevance (0-100): Does the answer directly address the question asked?
-- Depth (0-100): Does it go beyond surface level? Does it show genuine understanding?
+- Depth (0-100): Does it go beyond surface level and show genuine understanding?
 - Accuracy (0-100): Is the technical/factual content correct and credible?
 - Examples (0-100): Does it include specific examples, numbers, outcomes, or real experiences?
 
 BE HONEST AND STRICT. A short vague answer should score LOW. A detailed specific answer should score HIGH.
-Do not be generous — scores should reflect real interview standards at a top company.
 
 Respond ONLY with this exact JSON (no markdown, no extra text):
 {{
   "speaking": {{
-    "clarity": <0-100>,
-    "pace": <0-100>,
-    "confidence": <0-100>,
-    "structure": <0-100>,
+    "clarity": <0-100>, "pace": <0-100>, "confidence": <0-100>, "structure": <0-100>,
     "feedback": "<2-3 sentences: specific actionable speaking feedback>",
-    "top_issue": "<single biggest speaking problem, e.g. 'Too many filler words', 'Answer too short', 'Unclear sentence structure'>"
+    "top_issue": "<single biggest speaking problem>"
   }},
   "answer_quality": {{
-    "relevance": <0-100>,
-    "depth": <0-100>,
-    "accuracy": <0-100>,
-    "examples": <0-100>,
+    "relevance": <0-100>, "depth": <0-100>, "accuracy": <0-100>, "examples": <0-100>,
     "feedback": "<2-3 sentences: specific actionable content feedback>",
     "strengths": ["<strength 1>", "<strength 2>"],
     "improvements": ["<improvement 1>", "<improvement 2>"]
@@ -1049,95 +874,42 @@ Respond ONLY with this exact JSON (no markdown, no extra text):
 }}"""
 
     try:
-        raw = call_openrouter(prompt, temperature=0.3, max_tokens=600)
-        if not raw:
-            raise ValueError("No response from AI")
-
+        raw    = call_openrouter(prompt, temperature=0.3, max_tokens=600)
+        if not raw: raise ValueError("No response from AI")
         clean  = raw.replace("```json","").replace("```","").strip()
         s      = clean.find("{"); e = clean.rfind("}")
         result = json.loads(clean[s:e+1])
-
-        sp  = result.get("speaking",       {})
-        aq  = result.get("answer_quality", {})
-
-        # Calculate aggregate scores
-        speaking_score = round((
-            sp.get("clarity",    0) +
-            sp.get("pace",       0) +
-            sp.get("confidence", 0) +
-            sp.get("structure",  0)
-        ) / 4)
-
-        answer_score = round((
-            aq.get("relevance",  0) +
-            aq.get("depth",      0) +
-            aq.get("accuracy",   0) +
-            aq.get("examples",   0)
-        ) / 4)
-
-        overall = round(speaking_score * 0.35 + answer_score * 0.65)
-
-        verdict = (
-            "Excellent" if overall >= 80 else
-            "Good"      if overall >= 60 else
-            "Fair"      if overall >= 40 else
-            "Needs Work"
-        )
-
-        return jsonify({
-            "ok": True,
-            "speaking": {
-                "score":      speaking_score,
-                "clarity":    sp.get("clarity",    0),
-                "pace":       sp.get("pace",       0),
-                "confidence": sp.get("confidence", 0),
-                "structure":  sp.get("structure",  0),
-                "feedback":   sp.get("feedback",   ""),
-                "top_issue":  sp.get("top_issue",  ""),
-                "filler_words": found_fillers,
-                "word_count":   word_count,
-            },
-            "answer_quality": {
-                "score":        answer_score,
-                "relevance":    aq.get("relevance",  0),
-                "depth":        aq.get("depth",      0),
-                "accuracy":     aq.get("accuracy",   0),
-                "examples":     aq.get("examples",   0),
-                "feedback":     aq.get("feedback",   ""),
-                "strengths":    aq.get("strengths",  []),
-                "improvements": aq.get("improvements", []),
-            },
-            "overall_score": overall,
-            "verdict":       verdict,
-        })
-
+        sp     = result.get("speaking",       {})
+        aq     = result.get("answer_quality", {})
+        sp_score = round((sp.get("clarity",0)+sp.get("pace",0)+sp.get("confidence",0)+sp.get("structure",0))/4)
+        aq_score = round((aq.get("relevance",0)+aq.get("depth",0)+aq.get("accuracy",0)+aq.get("examples",0))/4)
+        overall  = round(sp_score * 0.35 + aq_score * 0.65)
+        verdict  = "Excellent" if overall>=80 else "Good" if overall>=60 else "Fair" if overall>=40 else "Needs Work"
+        return jsonify({"ok":True,
+            "speaking":       {"score":sp_score,"clarity":sp.get("clarity",0),"pace":sp.get("pace",0),
+                               "confidence":sp.get("confidence",0),"structure":sp.get("structure",0),
+                               "feedback":sp.get("feedback",""),"top_issue":sp.get("top_issue",""),
+                               "filler_words":found_fillers,"word_count":word_count},
+            "answer_quality": {"score":aq_score,"relevance":aq.get("relevance",0),"depth":aq.get("depth",0),
+                               "accuracy":aq.get("accuracy",0),"examples":aq.get("examples",0),
+                               "feedback":aq.get("feedback",""),"strengths":aq.get("strengths",[]),
+                               "improvements":aq.get("improvements",[])},
+            "overall_score":overall, "verdict":verdict})
     except Exception as e:
         print(f"Analysis error: {e}")
-        # Fallback to basic text scoring
-        speaking_score = max(20, min(85, 50 + (word_count - 20) * 0.5 - filler_count * 5))
-        answer_score   = max(20, min(90, 40 + word_count * 0.8))
-        overall        = round(speaking_score * 0.35 + answer_score * 0.65)
-        return jsonify({
-            "ok": True,
-            "speaking": {
-                "score": round(speaking_score), "clarity": round(speaking_score),
-                "pace": round(speaking_score), "confidence": round(speaking_score),
-                "structure": round(speaking_score),
-                "feedback": "Speak clearly and avoid filler words for a stronger impression.",
-                "top_issue": "Filler words detected" if found_fillers else "Keep answers between 50-120 words",
-                "filler_words": found_fillers, "word_count": word_count,
-            },
-            "answer_quality": {
-                "score": round(answer_score), "relevance": round(answer_score),
-                "depth": round(answer_score), "accuracy": round(answer_score),
-                "examples": round(answer_score),
-                "feedback": "Add specific examples and quantifiable outcomes to strengthen your answer.",
-                "strengths": ["Attempted the question"],
-                "improvements": ["Add more specific examples", "Use STAR method"],
-            },
-            "overall_score": overall,
-            "verdict": "Good" if overall >= 60 else "Fair",
-        })
+        sp_score = max(20, min(85, 50 + (word_count-20)*0.5 - filler_count*5))
+        aq_score = max(20, min(90, 40 + word_count*0.8))
+        overall  = round(sp_score*0.35 + aq_score*0.65)
+        return jsonify({"ok":True,
+            "speaking":       {"score":round(sp_score),"clarity":round(sp_score),"pace":round(sp_score),
+                               "confidence":round(sp_score),"structure":round(sp_score),
+                               "feedback":"Speak clearly and avoid filler words.","top_issue":"See feedback",
+                               "filler_words":found_fillers,"word_count":word_count},
+            "answer_quality": {"score":round(aq_score),"relevance":round(aq_score),"depth":round(aq_score),
+                               "accuracy":round(aq_score),"examples":round(aq_score),
+                               "feedback":"Add specific examples and quantifiable outcomes.",
+                               "strengths":["Attempted the question"],"improvements":["Add more examples","Use STAR method"]},
+            "overall_score":overall, "verdict":"Good" if overall>=60 else "Fair"})
 
 # ==================== ERROR HANDLERS ====================
 
@@ -1153,10 +925,11 @@ def internal_error(e):
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("🍳 JobCooked — AI Interview Prep")
+    print("JobCooked - AI Interview Prep")
     print("="*60)
-    print(f"  Model  : {OPENROUTER_MODEL}")
-    print(f"  Key    : {OPENROUTER_API_KEY[:20]}...")
-    print(f"  URL    : http://localhost:5000")
+    db_type = "PostgreSQL" if os.environ.get("DATABASE_URL") else "SQLite (local)"
+    print(f"  Database : {db_type}")
+    print(f"  Model    : {OPENROUTER_MODEL}")
+    print(f"  URL      : http://localhost:5000")
     print("="*60 + "\n")
     app.run(debug=True, host="0.0.0.0", port=5000)
